@@ -42,6 +42,30 @@ public class ServerConfig {
         return Integer.parseInt(properties.getProperty("health.check.interval", "10"));
     }
 
+    public boolean isAutoScalingEnabled() {
+        return Boolean.parseBoolean(properties.getProperty("autoscaling.enabled", "true"));
+    }
+
+    public int getAutoScalingMinServers() {
+        return Integer.parseInt(properties.getProperty("autoscaling.min.servers", "1"));
+    }
+
+    public int getAutoScalingMaxServers() {
+        return Integer.parseInt(properties.getProperty("autoscaling.max.servers", "20"));
+    }
+
+    public int getAutoScalingCheckInterval() {
+        return Integer.parseInt(properties.getProperty("autoscaling.check.interval", "10"));
+    }
+
+    public double getAutoScalingScaleUpThreshold() {
+        return Double.parseDouble(properties.getProperty("autoscaling.scale.up.threshold", "50"));
+    }
+
+    public double getAutoScalingScaleDownThreshold() {
+        return Double.parseDouble(properties.getProperty("autoscaling.scale.down.threshold", "10"));
+    }
+
     public String getProperty(String key, String defaultValue) {
         return properties.getProperty(key, defaultValue);
     }
