@@ -1,5 +1,5 @@
 {
-  "java.configuration.updateBuildConfiguration": "interactive",
+  "java.configuration.updateBuildConfiguration": "automatic",
   "java.format.settings.url": "${workspaceFolder}/eclipse-formatter.xml",
   "java.format.settings.profile": "Red Hat Java Style",
   "editor.formatOnSave": true,
