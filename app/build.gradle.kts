@@ -45,7 +45,7 @@ tasks.named<Test>("test") {
 
 spotless {
     java {
-        googleJavaFormat()
+        eclipse().configFile("${project.rootDir}/eclipse-formatter.xml")
         removeUnusedImports()
         trimTrailingWhitespace()
         endWithNewline()

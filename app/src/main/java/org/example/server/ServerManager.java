@@ -44,19 +44,16 @@ public class ServerManager {
     Process process = pb.start();
 
     // Start a thread to consume the output
-    new Thread(
-            () -> {
-              try (BufferedReader reader =
-                  new BufferedReader(new InputStreamReader(process.getInputStream()))) {
-                String line;
-                while ((line = reader.readLine()) != null) {
-                  LOGGER.fine("[" + nodeId + "] " + line);
-                }
-              } catch (IOException e) {
-                LOGGER.warning("Error reading server output: " + e.getMessage());
-              }
-            })
-        .start();
+    new Thread(() -> {
+      try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
+        String line;
+        while ((line = reader.readLine()) != null) {
+          LOGGER.fine("[" + nodeId + "] " + line);
+        }
+      } catch (IOException e) {
+        LOGGER.warning("Error reading server output: " + e.getMessage());
+      }
+    }).start();
 
     serverProcesses.put(nodeId, process);
     Node node = new Node(nodeId, "localhost", port);

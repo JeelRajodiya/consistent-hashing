@@ -43,13 +43,8 @@ public class ConsistentHashRing {
     }
 
     nodeHashes.put(node.getId(), hashes);
-    LOGGER.info(
-        "✓ Added node "
-            + node.getId()
-            + " to the ring with "
-            + virtualNodes
-            + " virtual nodes. Total nodes: "
-            + nodeHashes.size());
+    LOGGER.info("✓ Added node " + node.getId() + " to the ring with " + virtualNodes + " virtual nodes. Total nodes: "
+      + nodeHashes.size());
   }
 
   /** Remove a node from the ring */
@@ -90,11 +85,8 @@ public class ConsistentHashRing {
     md.update(key.getBytes());
     byte[] digest = md.digest();
 
-    long hash =
-        ((long) (digest[3] & 0xFF) << 24)
-            | ((long) (digest[2] & 0xFF) << 16)
-            | ((long) (digest[1] & 0xFF) << 8)
-            | ((long) (digest[0] & 0xFF));
+    long hash = ((long) (digest[3] & 0xFF) << 24) | ((long) (digest[2] & 0xFF) << 16) | ((long) (digest[1] & 0xFF) << 8)
+      | ((long) (digest[0] & 0xFF));
 
     return hash & 0xFFFFFFFFL;
   }
@@ -119,8 +111,7 @@ public class ConsistentHashRing {
     sb.append("Active Nodes:\n");
 
     for (String nodeId : nodeHashes.keySet()) {
-      Node node =
-          ring.values().stream().filter(n -> n.getId().equals(nodeId)).findFirst().orElse(null);
+      Node node = ring.values().stream().filter(n -> n.getId().equals(nodeId)).findFirst().orElse(null);
       if (node != null) {
         sb.append("  - ").append(node).append("\n");
       }

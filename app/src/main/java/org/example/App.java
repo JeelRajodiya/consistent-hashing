@@ -4,6 +4,7 @@ import java.util.logging.ConsoleHandler;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import java.util.logging.SimpleFormatter;
+
 import org.example.config.ServerConfig;
 import org.example.loadbalancer.LoadBalancer;
 
@@ -33,13 +34,10 @@ public class App {
       loadBalancer.start();
 
       // Add shutdown hook
-      Runtime.getRuntime()
-          .addShutdownHook(
-              new Thread(
-                  () -> {
-                    LOGGER.info("\nShutdown signal received...");
-                    loadBalancer.stop();
-                  }));
+      Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+        LOGGER.info("\nShutdown signal received...");
+        loadBalancer.stop();
+      }));
 
       // Keep the application running
       LOGGER.info("\n✓ Application is running. Press Ctrl+C to stop.\n");

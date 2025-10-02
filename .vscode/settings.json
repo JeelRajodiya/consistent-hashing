@@ -1,3 +1,13 @@
 {
-	"java.configuration.updateBuildConfiguration": "interactive"
+  "java.configuration.updateBuildConfiguration": "interactive",
+  "java.format.settings.url": "${workspaceFolder}/eclipse-formatter.xml",
+  "java.format.settings.profile": "Red Hat Java Style",
+  "editor.formatOnSave": true,
+  "editor.tabSize": 2,
+  "editor.insertSpaces": true,
+  "[java]": {
+    "editor.defaultFormatter": "redhat.java",
+    "editor.formatOnSave": true,
+    "editor.tabSize": 2
+  }
 }

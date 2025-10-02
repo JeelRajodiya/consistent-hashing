@@ -42,8 +42,10 @@ public class Node {
 
   @Override
   public boolean equals(Object o) {
-    if (this == o) return true;
-    if (o == null || getClass() != o.getClass()) return false;
+    if (this == o)
+      return true;
+    if (o == null || getClass() != o.getClass())
+      return false;
     Node node = (Node) o;
     return port == node.port && Objects.equals(id, node.id) && Objects.equals(host, node.host);
   }
@@ -55,15 +57,6 @@ public class Node {
 
   @Override
   public String toString() {
-    return "Node{"
-        + "id='"
-        + id
-        + '\''
-        + ", address='"
-        + getAddress()
-        + '\''
-        + ", active="
-        + active
-        + '}';
+    return "Node{" + "id='" + id + '\'' + ", address='" + getAddress() + '\'' + ", active=" + active + '}';
   }
 }

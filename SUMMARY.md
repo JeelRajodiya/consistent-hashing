@@ -1,4 +1,4 @@
-# 🎉 Project Complete!
+# 🎉 Project Complete
 
 ## ✅ What You Have Now
 

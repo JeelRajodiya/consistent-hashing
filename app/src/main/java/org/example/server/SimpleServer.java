@@ -46,17 +46,10 @@ public class SimpleServer {
       String requestPath = exchange.getRequestURI().getPath();
       String requestMethod = exchange.getRequestMethod();
 
-      String response =
-          String.format(
-              "{\n"
-                  + "  \"server\": \"%s\",\n"
-                  + "  \"port\": %d,\n"
-                  + "  \"path\": \"%s\",\n"
-                  + "  \"method\": \"%s\",\n"
-                  + "  \"message\": \"Hello from %s!\",\n"
-                  + "  \"timestamp\": %d\n"
-                  + "}",
-              serverId, port, requestPath, requestMethod, serverId, System.currentTimeMillis());
+      String response = String.format(
+        "{\n" + "  \"server\": \"%s\",\n" + "  \"port\": %d,\n" + "  \"path\": \"%s\",\n" + "  \"method\": \"%s\",\n"
+          + "  \"message\": \"Hello from %s!\",\n" + "  \"timestamp\": %d\n" + "}",
+        serverId, port, requestPath, requestMethod, serverId, System.currentTimeMillis());
 
       exchange.getResponseHeaders().set("Content-Type", "application/json");
       exchange.sendResponseHeaders(200, response.getBytes(StandardCharsets.UTF_8).length);

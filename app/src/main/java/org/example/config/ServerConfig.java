@@ -17,9 +17,8 @@ public class ServerConfig {
   }
 
   public String getServerCommand() {
-    return properties.getProperty(
-        "server.command",
-        "java -cp app/build/classes/java/main org.example.server.SimpleServer {PORT}");
+    return properties.getProperty("server.command",
+      "java -cp app/build/classes/java/main org.example.server.SimpleServer {PORT}");
   }
 
   public int getInitialServerCount() {

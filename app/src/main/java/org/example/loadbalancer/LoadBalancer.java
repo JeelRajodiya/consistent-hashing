@@ -3,12 +3,16 @@ package org.example.loadbalancer;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpHandler;
 import com.sun.net.httpserver.HttpServer;
-import java.io.*;
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.io.InputStreamReader;
+import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.InetSocketAddress;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
@@ -20,6 +24,7 @@ import org.example.server.ServerManager;
 
 /** Load Balancer with Consistent Hashing */
 public class LoadBalancer {
+
   private static final Logger LOGGER = Logger.getLogger(LoadBalancer.class.getName());
 
   private final ServerConfig config;
@@ -107,26 +112,22 @@ public class LoadBalancer {
   /** Start periodic health checks */
   private void startHealthCheck() {
     int interval = config.getHealthCheckInterval();
-    scheduler.scheduleAtFixedRate(
-        () -> {
-          try {
-            for (Node node : serverManager.getNodes()) {
-              boolean healthy = serverManager.isServerHealthy(node);
-              if (!healthy && node.isActive()) {
-                LOGGER.warning("⚠️  Node " + node.getId() + " is unhealthy!");
-                node.setActive(false);
-              } else if (healthy && !node.isActive()) {
-                LOGGER.info("✓ Node " + node.getId() + " is back online!");
-                node.setActive(true);
-              }
-            }
-          } catch (Exception e) {
-            LOGGER.warning("Health check error: " + e.getMessage());
+    scheduler.scheduleAtFixedRate(() -> {
+      try {
+        for (Node node : serverManager.getNodes()) {
+          boolean healthy = serverManager.isServerHealthy(node);
+          if (!healthy && node.isActive()) {
+            LOGGER.warning("⚠️  Node " + node.getId() + " is unhealthy!");
+            node.setActive(false);
+          } else if (healthy && !node.isActive()) {
+            LOGGER.info("✓ Node " + node.getId() + " is back online!");
+            node.setActive(true);
           }
-        },
-        interval,
-        interval,
-        TimeUnit.SECONDS);
+        }
+      } catch (Exception e) {
+        LOGGER.warning("Health check error: " + e.getMessage());
+      }
+    }, interval, interval, TimeUnit.SECONDS);
   }
 
   /** Start auto-scaling based on request load */
@@ -142,88 +143,68 @@ public class LoadBalancer {
     LOGGER.info("   - Check interval: " + AUTO_SCALE_CHECK_INTERVAL + " seconds");
     LOGGER.info("   - Min servers: " + MIN_SERVERS + ", Max servers: " + MAX_SERVERS);
 
-    autoScaleScheduler.scheduleAtFixedRate(
-        () -> {
-          try {
-            // Calculate requests per second in this interval
-            long currentRequests = requestCount;
-            requestsPerInterval = currentRequests - lastRequestCount;
-            lastRequestCount = currentRequests;
+    autoScaleScheduler.scheduleAtFixedRate(() -> {
+      try {
+        // Calculate requests per second in this interval
+        long currentRequests = requestCount;
+        requestsPerInterval = currentRequests - lastRequestCount;
+        lastRequestCount = currentRequests;
 
-            double requestsPerSecond = requestsPerInterval / (double) AUTO_SCALE_CHECK_INTERVAL;
-            int currentServerCount = serverManager.getServerCount();
+        double requestsPerSecond = requestsPerInterval / (double) AUTO_SCALE_CHECK_INTERVAL;
+        int currentServerCount = serverManager.getServerCount();
 
-            int requestsPerServer =
-                currentServerCount > 0 ? (int) (requestsPerSecond / currentServerCount) : 0;
+        int requestsPerServer = currentServerCount > 0 ? (int) (requestsPerSecond / currentServerCount) : 0;
 
-            LOGGER.info(
-                "📊 Load Monitor: "
-                    + String.format("%.1f", requestsPerSecond)
-                    + " req/s "
-                    + "("
-                    + requestsPerInterval
-                    + " requests in "
-                    + AUTO_SCALE_CHECK_INTERVAL
-                    + "s) | "
-                    + currentServerCount
-                    + " servers | "
-                    + requestsPerServer
-                    + " req/s per server");
+        LOGGER.info("📊 Load Monitor: " + String.format("%.1f", requestsPerSecond) + " req/s " + "("
+          + requestsPerInterval + " requests in " + AUTO_SCALE_CHECK_INTERVAL + "s) | " + currentServerCount
+          + " servers | " + requestsPerServer + " req/s per server");
 
-            // Scale up if load is high
-            if (requestsPerSecond > SCALE_UP_THRESHOLD && currentServerCount < MAX_SERVERS) {
-              // Calculate how many servers to add (at least 1, max 3 at a time)
-              int serversToAdd =
-                  Math.min(3, Math.max(1, (int) (requestsPerSecond / SCALE_UP_THRESHOLD)));
-              serversToAdd = Math.min(serversToAdd, MAX_SERVERS - currentServerCount);
+        // Scale up if load is high
+        if (requestsPerSecond > SCALE_UP_THRESHOLD && currentServerCount < MAX_SERVERS) {
+          // Calculate how many servers to add (at least 1, max 3 at a time)
+          int serversToAdd = Math.min(3, Math.max(1, (int) (requestsPerSecond / SCALE_UP_THRESHOLD)));
+          serversToAdd = Math.min(serversToAdd, MAX_SERVERS - currentServerCount);
 
-              LOGGER.info(
-                  "📈 AUTO-SCALE UP: High load detected! Adding " + serversToAdd + " server(s)...");
+          LOGGER.info("📈 AUTO-SCALE UP: High load detected! Adding " + serversToAdd + " server(s)...");
 
-              for (int i = 0; i < serversToAdd; i++) {
-                Node node = serverManager.startServer();
-                hashRing.addNode(node);
-              }
-
-              LOGGER.info("✓ Scaled up to " + serverManager.getServerCount() + " servers");
-            }
-            // Scale down if load is low (but keep at least MIN_SERVERS)
-            else if (requestsPerSecond < SCALE_DOWN_THRESHOLD && currentServerCount > MIN_SERVERS) {
-              // Only scale down if load has been consistently low
-              // Calculate how many servers to remove (at least 1, max 2 at a time)
-              int serversToRemove = Math.min(2, currentServerCount - MIN_SERVERS);
-
-              // Don't scale down too aggressively
-              if (requestsPerSecond > 5.0) {
-                serversToRemove = Math.min(1, serversToRemove);
-              }
-
-              LOGGER.info(
-                  "📉 AUTO-SCALE DOWN: Low load detected. Removing "
-                      + serversToRemove
-                      + " server(s)...");
-
-              List<Node> nodes = new ArrayList<>(serverManager.getNodes());
-              for (int i = 0; i < serversToRemove && nodes.size() > MIN_SERVERS; i++) {
-                Node node = nodes.get(nodes.size() - 1 - i);
-                hashRing.removeNode(node.getId());
-                serverManager.stopServer(node.getId());
-              }
-
-              LOGGER.info("✓ Scaled down to " + serverManager.getServerCount() + " servers");
-            }
-
-          } catch (Exception e) {
-            LOGGER.warning("Auto-scaling error: " + e.getMessage());
+          for (int i = 0; i < serversToAdd; i++) {
+            Node node = serverManager.startServer();
+            hashRing.addNode(node);
           }
-        },
-        AUTO_SCALE_CHECK_INTERVAL,
-        AUTO_SCALE_CHECK_INTERVAL,
-        TimeUnit.SECONDS);
+
+          LOGGER.info("✓ Scaled up to " + serverManager.getServerCount() + " servers");
+        } // Scale down if load is low (but keep at least MIN_SERVERS)
+        else if (requestsPerSecond < SCALE_DOWN_THRESHOLD && currentServerCount > MIN_SERVERS) {
+          // Only scale down if load has been consistently low
+          // Calculate how many servers to remove (at least 1, max 2 at a time)
+          int serversToRemove = Math.min(2, currentServerCount - MIN_SERVERS);
+
+          // Don't scale down too aggressively
+          if (requestsPerSecond > 5.0) {
+            serversToRemove = Math.min(1, serversToRemove);
+          }
+
+          LOGGER.info("📉 AUTO-SCALE DOWN: Low load detected. Removing " + serversToRemove + " server(s)...");
+
+          List<Node> nodes = new ArrayList<>(serverManager.getNodes());
+          for (int i = 0; i < serversToRemove && nodes.size() > MIN_SERVERS; i++) {
+            Node node = nodes.get(nodes.size() - 1 - i);
+            hashRing.removeNode(node.getId());
+            serverManager.stopServer(node.getId());
+          }
+
+          LOGGER.info("✓ Scaled down to " + serverManager.getServerCount() + " servers");
+        }
+
+      } catch (Exception e) {
+        LOGGER.warning("Auto-scaling error: " + e.getMessage());
+      }
+    }, AUTO_SCALE_CHECK_INTERVAL, AUTO_SCALE_CHECK_INTERVAL, TimeUnit.SECONDS);
   }
 
   /** Main load balancer request handler */
   class LoadBalancerHandler implements HttpHandler {
+
     @Override
     public void handle(HttpExchange exchange) throws IOException {
       requestCount++;
@@ -241,20 +222,11 @@ public class LoadBalancer {
       }
 
       LOGGER.info(
-          "Request #"
-              + requestCount
-              + " from "
-              + clientIp
-              + " → "
-              + targetNode.getId()
-              + " (key: "
-              + hashKey
-              + ")");
+        "Request #" + requestCount + " from " + clientIp + " → " + targetNode.getId() + " (key: " + hashKey + ")");
 
       try {
         // Forward the request to the backend server
-        String targetUrl =
-            "http://" + targetNode.getAddress() + exchange.getRequestURI().toString();
+        String targetUrl = "http://" + targetNode.getAddress() + exchange.getRequestURI().toString();
         String response = forwardRequest(targetUrl, exchange.getRequestMethod());
 
         // Send response back to client
@@ -275,6 +247,7 @@ public class LoadBalancer {
 
   /** Stats endpoint handler */
   class StatsHandler implements HttpHandler {
+
     @Override
     public void handle(HttpExchange exchange) throws IOException {
       StringBuilder stats = new StringBuilder();
@@ -296,7 +269,9 @@ public class LoadBalancer {
         stats.append("        \"address\": \"").append(node.getAddress()).append("\",\n");
         stats.append("        \"active\": ").append(node.isActive()).append("\n");
         stats.append("      }");
-        if (i < nodes.size() - 1) stats.append(",");
+        if (i < nodes.size() - 1) {
+          stats.append(",");
+        }
         stats.append("\n");
       }
 
@@ -318,6 +293,7 @@ public class LoadBalancer {
 
   /** Add server endpoint handler */
   class AddServerHandler implements HttpHandler {
+
     @Override
     public void handle(HttpExchange exchange) throws IOException {
       try {
@@ -326,22 +302,9 @@ public class LoadBalancer {
 
         LOGGER.info(hashRing.getStats());
 
-        String response =
-            "{\n"
-                + "  \"status\": \"success\",\n"
-                + "  \"message\": \"Server added successfully\",\n"
-                + "  \"server\": {\n"
-                + "    \"id\": \""
-                + node.getId()
-                + "\",\n"
-                + "    \"address\": \""
-                + node.getAddress()
-                + "\"\n"
-                + "  },\n"
-                + "  \"totalServers\": "
-                + serverManager.getServerCount()
-                + "\n"
-                + "}\n";
+        String response = "{\n" + "  \"status\": \"success\",\n" + "  \"message\": \"Server added successfully\",\n"
+          + "  \"server\": {\n" + "    \"id\": \"" + node.getId() + "\",\n" + "    \"address\": \"" + node.getAddress()
+          + "\"\n" + "  },\n" + "  \"totalServers\": " + serverManager.getServerCount() + "\n" + "}\n";
 
         exchange.getResponseHeaders().set("Content-Type", "application/json");
         exchange.sendResponseHeaders(200, response.getBytes(StandardCharsets.UTF_8).length);
@@ -359,6 +322,7 @@ public class LoadBalancer {
 
   /** Remove server endpoint handler */
   class RemoveServerHandler implements HttpHandler {
+
     @Override
     public void handle(HttpExchange exchange) throws IOException {
       String query = exchange.getRequestURI().getQuery();
@@ -380,17 +344,9 @@ public class LoadBalancer {
 
       LOGGER.info(hashRing.getStats());
 
-      String response =
-          "{\n"
-              + "  \"status\": \"success\",\n"
-              + "  \"message\": \"Server removed successfully\",\n"
-              + "  \"serverId\": \""
-              + nodeId
-              + "\",\n"
-              + "  \"totalServers\": "
-              + serverManager.getServerCount()
-              + "\n"
-              + "}\n";
+      String response = "{\n" + "  \"status\": \"success\",\n" + "  \"message\": \"Server removed successfully\",\n"
+        + "  \"serverId\": \"" + nodeId + "\",\n" + "  \"totalServers\": " + serverManager.getServerCount() + "\n"
+        + "}\n";
 
       exchange.getResponseHeaders().set("Content-Type", "application/json");
       exchange.sendResponseHeaders(200, response.getBytes(StandardCharsets.UTF_8).length);
@@ -403,6 +359,7 @@ public class LoadBalancer {
 
   /** Scale up handler - Add multiple servers */
   class ScaleUpHandler implements HttpHandler {
+
     @Override
     public void handle(HttpExchange exchange) throws IOException {
       String query = exchange.getRequestURI().getQuery();
@@ -436,23 +393,14 @@ public class LoadBalancer {
         StringBuilder serversJson = new StringBuilder();
         for (int i = 0; i < addedServers.size(); i++) {
           serversJson.append("\"").append(addedServers.get(i)).append("\"");
-          if (i < addedServers.size() - 1) serversJson.append(", ");
+          if (i < addedServers.size() - 1) {
+            serversJson.append(", ");
+          }
         }
 
-        String response =
-            "{\n"
-                + "  \"status\": \"success\",\n"
-                + "  \"message\": \"Scaled up successfully\",\n"
-                + "  \"serversAdded\": "
-                + count
-                + ",\n"
-                + "  \"serverIds\": ["
-                + serversJson.toString()
-                + "],\n"
-                + "  \"totalServers\": "
-                + serverManager.getServerCount()
-                + "\n"
-                + "}\n";
+        String response = "{\n" + "  \"status\": \"success\",\n" + "  \"message\": \"Scaled up successfully\",\n"
+          + "  \"serversAdded\": " + count + ",\n" + "  \"serverIds\": [" + serversJson.toString() + "],\n"
+          + "  \"totalServers\": " + serverManager.getServerCount() + "\n" + "}\n";
 
         exchange.getResponseHeaders().set("Content-Type", "application/json");
         exchange.sendResponseHeaders(200, response.getBytes(StandardCharsets.UTF_8).length);
@@ -470,6 +418,7 @@ public class LoadBalancer {
 
   /** Scale down handler - Remove multiple servers */
   class ScaleDownHandler implements HttpHandler {
+
     @Override
     public void handle(HttpExchange exchange) throws IOException {
       String query = exchange.getRequestURI().getQuery();
@@ -490,9 +439,7 @@ public class LoadBalancer {
 
       int currentCount = serverManager.getServerCount();
       if (count >= currentCount) {
-        sendErrorResponse(
-            exchange,
-            "Cannot remove all servers. Current: " + currentCount + ", Requested: " + count);
+        sendErrorResponse(exchange, "Cannot remove all servers. Current: " + currentCount + ", Requested: " + count);
         return;
       }
 
@@ -514,23 +461,14 @@ public class LoadBalancer {
         StringBuilder serversJson = new StringBuilder();
         for (int i = 0; i < removedServers.size(); i++) {
           serversJson.append("\"").append(removedServers.get(i)).append("\"");
-          if (i < removedServers.size() - 1) serversJson.append(", ");
+          if (i < removedServers.size() - 1) {
+            serversJson.append(", ");
+          }
         }
 
-        String response =
-            "{\n"
-                + "  \"status\": \"success\",\n"
-                + "  \"message\": \"Scaled down successfully\",\n"
-                + "  \"serversRemoved\": "
-                + removedServers.size()
-                + ",\n"
-                + "  \"serverIds\": ["
-                + serversJson.toString()
-                + "],\n"
-                + "  \"totalServers\": "
-                + serverManager.getServerCount()
-                + "\n"
-                + "}\n";
+        String response = "{\n" + "  \"status\": \"success\",\n" + "  \"message\": \"Scaled down successfully\",\n"
+          + "  \"serversRemoved\": " + removedServers.size() + ",\n" + "  \"serverIds\": [" + serversJson.toString()
+          + "],\n" + "  \"totalServers\": " + serverManager.getServerCount() + "\n" + "}\n";
 
         exchange.getResponseHeaders().set("Content-Type", "application/json");
         exchange.sendResponseHeaders(200, response.getBytes(StandardCharsets.UTF_8).length);
@@ -548,6 +486,7 @@ public class LoadBalancer {
 
   /** Scale handler - Scale to a specific number of servers */
   class ScaleHandler implements HttpHandler {
+
     @Override
     public void handle(HttpExchange exchange) throws IOException {
       String query = exchange.getRequestURI().getQuery();
@@ -592,8 +531,7 @@ public class LoadBalancer {
           // Scale down
           changeCount = currentCount - targetCount;
           action = "scaled down";
-          LOGGER.info(
-              "⚖️  Scaling to " + targetCount + " servers (removing " + changeCount + ")...");
+          LOGGER.info("⚖️  Scaling to " + targetCount + " servers (removing " + changeCount + ")...");
 
           List<Node> nodes = new ArrayList<>(serverManager.getNodes());
           for (int i = 0; i < changeCount; i++) {
@@ -605,14 +543,9 @@ public class LoadBalancer {
 
         } else {
           // No change needed
-          String response =
-              "{\n"
-                  + "  \"status\": \"success\",\n"
-                  + "  \"message\": \"Already at target server count\",\n"
-                  + "  \"totalServers\": "
-                  + currentCount
-                  + "\n"
-                  + "}\n";
+          String response = "{\n" + "  \"status\": \"success\",\n"
+            + "  \"message\": \"Already at target server count\",\n" + "  \"totalServers\": " + currentCount + "\n"
+            + "}\n";
 
           exchange.getResponseHeaders().set("Content-Type", "application/json");
           exchange.sendResponseHeaders(200, response.getBytes(StandardCharsets.UTF_8).length);
@@ -628,30 +561,15 @@ public class LoadBalancer {
         StringBuilder serversJson = new StringBuilder();
         for (int i = 0; i < changedServers.size(); i++) {
           serversJson.append("\"").append(changedServers.get(i)).append("\"");
-          if (i < changedServers.size() - 1) serversJson.append(", ");
+          if (i < changedServers.size() - 1) {
+            serversJson.append(", ");
+          }
         }
 
-        String response =
-            "{\n"
-                + "  \"status\": \"success\",\n"
-                + "  \"message\": \"Successfully "
-                + action
-                + " to "
-                + targetCount
-                + " servers\",\n"
-                + "  \"previousCount\": "
-                + currentCount
-                + ",\n"
-                + "  \"currentCount\": "
-                + serverManager.getServerCount()
-                + ",\n"
-                + "  \"serversChanged\": "
-                + changedServers.size()
-                + ",\n"
-                + "  \"serverIds\": ["
-                + serversJson.toString()
-                + "]\n"
-                + "}\n";
+        String response = "{\n" + "  \"status\": \"success\",\n" + "  \"message\": \"Successfully " + action + " to "
+          + targetCount + " servers\",\n" + "  \"previousCount\": " + currentCount + ",\n" + "  \"currentCount\": "
+          + serverManager.getServerCount() + ",\n" + "  \"serversChanged\": " + changedServers.size() + ",\n"
+          + "  \"serverIds\": [" + serversJson.toString() + "]\n" + "}\n";
 
         exchange.getResponseHeaders().set("Content-Type", "application/json");
         exchange.sendResponseHeaders(200, response.getBytes(StandardCharsets.UTF_8).length);
