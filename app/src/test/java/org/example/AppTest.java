@@ -3,14 +3,15 @@
  */
 package org.example;
 
-import org.junit.jupiter.api.Test;
 import static org.junit.jupiter.api.Assertions.*;
 
+import org.junit.jupiter.api.Test;
+
 class AppTest {
-    @Test 
-    void testAppInitialization() {
-        // Simple test to verify the App class can be instantiated
-        App app = new App();
-        assertNotNull(app, "App should be initialized");
-    }
+  @Test
+  void testAppInitialization() {
+    // Simple test to verify the App class can be instantiated
+    App app = new App();
+    assertNotNull(app, "App should be initialized");
+  }
 }
