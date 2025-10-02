@@ -26,7 +26,7 @@ public class App {
 
     try {
       // Load configuration
-      LOGGER.info("Loading configuration from: " + configPath);
+      LOGGER.log(Level.INFO, "Loading configuration from: {0}", configPath);
       ServerConfig config = new ServerConfig(configPath);
 
       // Create and start load balancer
@@ -44,8 +44,7 @@ public class App {
       Thread.currentThread().join();
 
     } catch (Exception e) {
-      LOGGER.severe("Fatal error: " + e.getMessage());
-      e.printStackTrace();
+      LOGGER.log(Level.SEVERE, "Fatal error: {0}", e.getMessage());
       System.exit(1);
     }
   }

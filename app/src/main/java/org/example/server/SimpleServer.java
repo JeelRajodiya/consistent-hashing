@@ -1,14 +1,16 @@
 package org.example.server;
 
-import com.sun.net.httpserver.HttpExchange;
-import com.sun.net.httpserver.HttpHandler;
-import com.sun.net.httpserver.HttpServer;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.util.concurrent.Executors;
+import java.util.logging.Level;
 import java.util.logging.Logger;
+
+import com.sun.net.httpserver.HttpExchange;
+import com.sun.net.httpserver.HttpHandler;
+import com.sun.net.httpserver.HttpServer;
 
 /** Simple HTTP server that represents a backend server */
 public class SimpleServer {
@@ -29,13 +31,13 @@ public class SimpleServer {
     server.createContext("/health", new HealthHandler());
     server.setExecutor(Executors.newFixedThreadPool(10));
     server.start();
-    LOGGER.info("🚀 " + serverId + " started on port " + port);
+    LOGGER.log(Level.INFO, "🚀 {0} started on port {1}", new Object[] { serverId, port });
   }
 
   public void stop() {
     if (server != null) {
       server.stop(0);
-      LOGGER.info("🛑 " + serverId + " stopped");
+      LOGGER.log(Level.INFO, "🛑 {0} stopped", serverId);
     }
   }
 
@@ -46,19 +48,24 @@ public class SimpleServer {
       String requestPath = exchange.getRequestURI().getPath();
       String requestMethod = exchange.getRequestMethod();
 
-      String response = String.format(
-        "{\n" + "  \"server\": \"%s\",\n" + "  \"port\": %d,\n" + "  \"path\": \"%s\",\n" + "  \"method\": \"%s\",\n"
-          + "  \"message\": \"Hello from %s!\",\n" + "  \"timestamp\": %d\n" + "}",
-        serverId, port, requestPath, requestMethod, serverId, System.currentTimeMillis());
+      String response = String.format("""
+        {
+          "server": "%s",
+          "port": %d,
+          "path": "%s",
+          "method": "%s",
+          "message": "Hello from %s!",
+          "timestamp": %d
+        }""", serverId, port, requestPath, requestMethod, serverId, System.currentTimeMillis());
 
       exchange.getResponseHeaders().set("Content-Type", "application/json");
       exchange.sendResponseHeaders(200, response.getBytes(StandardCharsets.UTF_8).length);
 
-      OutputStream os = exchange.getResponseBody();
-      os.write(response.getBytes(StandardCharsets.UTF_8));
-      os.close();
+      try (OutputStream os = exchange.getResponseBody()) {
+        os.write(response.getBytes(StandardCharsets.UTF_8));
+      }
 
-      LOGGER.info(serverId + " handled request: " + requestMethod + " " + requestPath);
+      LOGGER.log(Level.INFO, "{0} handled request: {1} {2}", new Object[] { serverId, requestMethod, requestPath });
     }
   }
 
@@ -70,9 +77,9 @@ public class SimpleServer {
       exchange.getResponseHeaders().set("Content-Type", "application/json");
       exchange.sendResponseHeaders(200, response.getBytes(StandardCharsets.UTF_8).length);
 
-      OutputStream os = exchange.getResponseBody();
-      os.write(response.getBytes(StandardCharsets.UTF_8));
-      os.close();
+      try (OutputStream os = exchange.getResponseBody()) {
+        os.write(response.getBytes(StandardCharsets.UTF_8));
+      }
     }
   }
 
@@ -90,9 +97,8 @@ public class SimpleServer {
 
       // Keep the server running
       Thread.currentThread().join();
-    } catch (Exception e) {
-      LOGGER.severe("Error starting server: " + e.getMessage());
-      e.printStackTrace();
+    } catch (IOException | InterruptedException e) {
+      LOGGER.log(Level.SEVERE, "Error starting server: {0}", e.getMessage());
     }
   }
 }

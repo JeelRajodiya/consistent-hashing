@@ -4,12 +4,15 @@ import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.net.HttpURLConnection;
+import java.net.URI;
 import java.net.URL;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.logging.Level;
 import java.util.logging.Logger;
+
 import org.example.common.Node;
 import org.example.config.ServerConfig;
 
@@ -37,7 +40,7 @@ public class ServerManager {
 
     String command = config.getServerCommand().replace("{PORT}", String.valueOf(port));
 
-    LOGGER.info("Starting server with command: " + command);
+    LOGGER.log(Level.INFO, "Starting server with command: {0}", command);
 
     ProcessBuilder pb = new ProcessBuilder(command.split("\\s+"));
     pb.redirectErrorStream(true);
@@ -48,10 +51,10 @@ public class ServerManager {
       try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
         String line;
         while ((line = reader.readLine()) != null) {
-          LOGGER.fine("[" + nodeId + "] " + line);
+          LOGGER.log(Level.FINE, "[{0}] {1}", new Object[] { nodeId, line });
         }
       } catch (IOException e) {
-        LOGGER.warning("Error reading server output: " + e.getMessage());
+        LOGGER.log(Level.WARNING, "Error reading server output: {0}", e.getMessage());
       }
     }).start();
 
@@ -66,7 +69,7 @@ public class ServerManager {
       Thread.currentThread().interrupt();
     }
 
-    LOGGER.info("✓ Server " + nodeId + " started on port " + port);
+    LOGGER.log(Level.INFO, "✓ Server {0} started on port {1}", new Object[] { nodeId, port });
     return node;
   }
 
@@ -77,7 +80,7 @@ public class ServerManager {
       process.destroy();
       serverProcesses.remove(nodeId);
       nodes.remove(nodeId);
-      LOGGER.info("✗ Server " + nodeId + " stopped");
+      LOGGER.log(Level.INFO, "✗ Server {0} stopped", nodeId);
     }
   }
 
@@ -94,7 +97,8 @@ public class ServerManager {
   /** Check if a server is healthy */
   public boolean isServerHealthy(Node node) {
     try {
-      URL url = new URL("http://" + node.getAddress() + "/health");
+      URL url = URI.create("http://" + node.getAddress() + "/health").toURL();
+
       HttpURLConnection conn = (HttpURLConnection) url.openConnection();
       conn.setRequestMethod("GET");
       conn.setConnectTimeout(2000);
@@ -104,7 +108,7 @@ public class ServerManager {
       conn.disconnect();
 
       return responseCode == 200;
-    } catch (Exception e) {
+    } catch (IOException e) {
       return false;
     }
   }

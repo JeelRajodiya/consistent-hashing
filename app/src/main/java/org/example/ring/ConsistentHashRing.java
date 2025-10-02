@@ -2,8 +2,16 @@ package org.example.ring;
 
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.TreeMap;
+import java.util.logging.Level;
 import java.util.logging.Logger;
+
 import org.example.common.Node;
 
 /** Consistent Hash Ring implementation with virtual nodes */
@@ -30,7 +38,7 @@ public class ConsistentHashRing {
   /** Add a node to the ring */
   public synchronized void addNode(Node node) {
     if (nodeHashes.containsKey(node.getId())) {
-      LOGGER.warning("Node " + node.getId() + " already exists in the ring");
+      LOGGER.log(Level.WARNING, "Node {0} already exists in the ring", node.getId());
       return;
     }
 
@@ -43,15 +51,15 @@ public class ConsistentHashRing {
     }
 
     nodeHashes.put(node.getId(), hashes);
-    LOGGER.info("✓ Added node " + node.getId() + " to the ring with " + virtualNodes + " virtual nodes. Total nodes: "
-      + nodeHashes.size());
+    LOGGER.log(Level.INFO, "✓ Added node {0} to the ring with {1} virtual nodes. Total nodes: {2}",
+      new Object[] { node.getId(), virtualNodes, nodeHashes.size() });
   }
 
   /** Remove a node from the ring */
   public synchronized void removeNode(String nodeId) {
     List<Long> hashes = nodeHashes.get(nodeId);
     if (hashes == null) {
-      LOGGER.warning("Node " + nodeId + " not found in the ring");
+      LOGGER.log(Level.WARNING, "Node {0} not found in the ring", nodeId);
       return;
     }
 
@@ -60,7 +68,8 @@ public class ConsistentHashRing {
     }
 
     nodeHashes.remove(nodeId);
-    LOGGER.info("✗ Removed node " + nodeId + " from the ring. Total nodes: " + nodeHashes.size());
+    LOGGER.log(Level.INFO, "✗ Removed node {0} from the ring. Total nodes: {1}",
+      new Object[] { nodeId, nodeHashes.size() });
   }
 
   /** Get the node responsible for the given key */
