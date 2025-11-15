@@ -40,7 +40,7 @@ public class App {
       }));
 
       // Keep the application running
-      LOGGER.info("\n✓ Application is running. Press Ctrl+C to stop.\n");
+      LOGGER.info("\nApplication is running. Press Ctrl+C to stop.\n");
       Thread.currentThread().join();
 
     } catch (Exception e) {
