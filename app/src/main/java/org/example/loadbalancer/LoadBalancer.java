@@ -36,6 +36,7 @@ public class LoadBalancer {
   private final ConsistentHashRing hashRing;
   private final ServerManager serverManager;
   private HttpServer httpServer;
+  private StatsWebSocketServer wsServer;
   private final ScheduledExecutorService scheduler;
   private final ScheduledExecutorService autoScaleScheduler;
   private long requestCount = 0;
@@ -112,9 +113,15 @@ public class LoadBalancer {
     httpServer.setExecutor(Executors.newFixedThreadPool(20));
     httpServer.start();
 
+    // Start WebSocket server for stats streaming
+    int wsPort = lbPort + 1; // Use next port for WebSocket
+    wsServer = new StatsWebSocketServer(new InetSocketAddress(wsPort), this::generateStatsJson, 1);
+    wsServer.start();
+
     LOGGER.info("========================================");
     LOGGER.log(Level.INFO, "Load Balancer started on port {0}", lbPort);
     LOGGER.log(Level.INFO, "Stats: http://localhost:{0}/stats", lbPort);
+    LOGGER.log(Level.INFO, "Stats WebSocket: ws://localhost:{0}", wsPort);
     LOGGER.log(Level.INFO, "Add server: http://localhost:{0}/add-server", lbPort);
     LOGGER.log(Level.INFO, "Remove server: http://localhost:{0}/remove-server?id=<server-id>", lbPort);
     LOGGER.log(Level.INFO, "Scale up: http://localhost:{0}/scale-up?count=<number>", lbPort);
@@ -298,112 +305,7 @@ public class LoadBalancer {
 
     @Override
     public void handle(HttpExchange exchange) throws IOException {
-      long uptime = System.currentTimeMillis() - startTime;
-      long uptimeSeconds = uptime / 1000;
-      double requestsPerSecond = uptimeSeconds > 0 ? (double) requestCount / uptimeSeconds : 0;
-      double errorRate = requestCount > 0 ? (double) errorCount / requestCount * 100 : 0;
-      int currentServerCount = serverManager.getServerCount();
-      double avgRequestsPerServer = currentServerCount > 0 ? (double) requestCount / currentServerCount : 0;
-
-      StringBuilder stats = new StringBuilder();
-      stats.append("{\n");
-
-      // Load Balancer Info
-      stats.append("  \"loadBalancer\": {\n");
-      stats.append("    \"port\": ").append(config.getLoadBalancerPort()).append(",\n");
-      stats.append("    \"uptime\": ").append(uptimeSeconds).append(",\n");
-      stats.append("    \"uptimeFormatted\": \"").append(formatUptime(uptimeSeconds)).append("\",\n");
-      stats.append("    \"virtualNodesPerServer\": ").append(config.getVirtualNodes()).append("\n");
-      stats.append("  },\n");
-
-      // Performance Metrics
-      stats.append("  \"performance\": {\n");
-      stats.append("    \"totalRequests\": ").append(requestCount).append(",\n");
-      stats.append("    \"totalErrors\": ").append(errorCount).append(",\n");
-      stats.append("    \"errorRate\": ").append(String.format("%.2f", errorRate)).append(",\n");
-      stats.append("    \"requestsPerSecond\": ").append(String.format("%.2f", requestsPerSecond)).append(",\n");
-      stats.append("    \"currentLoad\": ")
-        .append(String.format("%.2f", requestsPerInterval / (double) AUTO_SCALE_CHECK_INTERVAL)).append(",\n");
-      stats.append("    \"avgRequestsPerServer\": ").append(String.format("%.2f", avgRequestsPerServer)).append("\n");
-      stats.append("  },\n");
-
-      // Auto-scaling Info
-      stats.append("  \"autoScaling\": {\n");
-      stats.append("    \"enabled\": ").append(autoScalingEnabled).append(",\n");
-      stats.append("    \"minServers\": ").append(MIN_SERVERS).append(",\n");
-      stats.append("    \"maxServers\": ").append(MAX_SERVERS).append(",\n");
-      stats.append("    \"scaleUpThreshold\": ").append(SCALE_UP_THRESHOLD).append(",\n");
-      stats.append("    \"scaleDownThreshold\": ").append(SCALE_DOWN_THRESHOLD).append(",\n");
-      stats.append("    \"checkInterval\": ").append(AUTO_SCALE_CHECK_INTERVAL).append(",\n");
-      stats.append("    \"lastScaleAction\": \"").append(lastScaleAction).append("\",\n");
-      stats.append("    \"lastScaleTime\": ").append(lastScaleTime).append("\n");
-      stats.append("  },\n");
-
-      // Hash Ring Stats
-      stats.append("  \"hashRing\": {\n");
-      stats.append("    \"totalVirtualNodes\": ").append(currentServerCount * config.getVirtualNodes()).append(",\n");
-      stats.append("    \"physicalNodes\": ").append(currentServerCount).append("\n");
-      stats.append("  },\n");
-
-      // Servers Info
-      stats.append("  \"servers\": {\n");
-      stats.append("    \"total\": ").append(currentServerCount).append(",\n");
-      stats.append("    \"active\": ").append(serverManager.getNodes().stream().filter(Node::isActive).count())
-        .append(",\n");
-      stats.append("    \"inactive\": ").append(serverManager.getNodes().stream().filter(n -> !n.isActive()).count())
-        .append(",\n");
-      stats.append("    \"nodes\": [\n");
-
-      List<Node> nodes = new ArrayList<>(serverManager.getNodes());
-      for (int i = 0; i < nodes.size(); i++) {
-        Node node = nodes.get(i);
-        long nodeUptime = (System.currentTimeMillis() - serverStartTimes.getOrDefault(node.getId(), startTime)) / 1000;
-        long nodeRequests = serverRequestCounts.getOrDefault(node.getId(), 0L);
-        double nodeLoad = nodeUptime > 0 ? (double) nodeRequests / nodeUptime : 0;
-
-        stats.append("      {\n");
-        stats.append("        \"id\": \"").append(node.getId()).append("\",\n");
-        stats.append("        \"address\": \"").append(node.getAddress()).append("\",\n");
-        stats.append("        \"active\": ").append(node.isActive()).append(",\n");
-        stats.append("        \"uptime\": ").append(nodeUptime).append(",\n");
-        stats.append("        \"uptimeFormatted\": \"").append(formatUptime(nodeUptime)).append("\",\n");
-        stats.append("        \"requestCount\": ").append(nodeRequests).append(",\n");
-        stats.append("        \"requestsPerSecond\": ").append(String.format("%.2f", nodeLoad)).append(",\n");
-        stats.append("        \"loadPercentage\": ")
-          .append(String.format("%.2f", requestCount > 0 ? (double) nodeRequests / requestCount * 100 : 0))
-          .append("\n");
-        stats.append("      }");
-        if (i < nodes.size() - 1) {
-          stats.append(",");
-        }
-        stats.append("\n");
-      }
-
-      stats.append("    ]\n");
-      stats.append("  }\n");
-
-      // Timeline data for charts
-      // stats.append(" \"timeline\": [\n");
-      // synchronized (requestTimeline) {
-      // for (int i = 0; i < requestTimeline.size(); i++) {
-      // TimelineDataPoint point = requestTimeline.get(i);
-      // stats.append(" {\n");
-      // stats.append(" \"timestamp\": ").append(point.timestamp).append(",\n");
-      // stats.append(" \"requestsPerSecond\": ").append(String.format("%.2f", point.requestsPerSecond))
-      // .append(",\n");
-      // stats.append(" \"serverCount\": ").append(point.serverCount).append("\n");
-      // stats.append(" }");
-      // if (i < requestTimeline.size() - 1) {
-      // stats.append(",");
-      // }
-      // stats.append("\n");
-      // }
-      // }
-      // stats.append(" ]\n");
-
-      stats.append("}\n");
-
-      String response = stats.toString();
+      String response = generateStatsJson();
       exchange.getResponseHeaders().set("Content-Type", "application/json");
       exchange.getResponseHeaders().set("Access-Control-Allow-Origin", "*"); // Enable CORS for UI
       exchange.sendResponseHeaders(200, response.getBytes(StandardCharsets.UTF_8).length);
@@ -414,23 +316,132 @@ public class LoadBalancer {
 
       LOGGER.info("Stats requested");
     }
+  }
 
-    /** Format uptime in human-readable format */
-    private String formatUptime(long seconds) {
-      long days = seconds / 86400;
-      long hours = (seconds % 86400) / 3600;
-      long minutes = (seconds % 3600) / 60;
-      long secs = seconds % 60;
+  /** Generate stats JSON */
+  private String generateStatsJson() {
+    long uptime = System.currentTimeMillis() - startTime;
+    long uptimeSeconds = uptime / 1000;
+    double requestsPerSecond = uptimeSeconds > 0 ? (double) requestCount / uptimeSeconds : 0;
+    double errorRate = requestCount > 0 ? (double) errorCount / requestCount * 100 : 0;
+    int currentServerCount = serverManager.getServerCount();
+    double avgRequestsPerServer = currentServerCount > 0 ? (double) requestCount / currentServerCount : 0;
 
-      if (days > 0) {
-        return String.format("%dd %dh %dm", days, hours, minutes);
-      } else if (hours > 0) {
-        return String.format("%dh %dm %ds", hours, minutes, secs);
-      } else if (minutes > 0) {
-        return String.format("%dm %ds", minutes, secs);
-      } else {
-        return String.format("%ds", secs);
+    StringBuilder stats = new StringBuilder();
+    stats.append("{\n");
+
+    // Load Balancer Info
+    stats.append("  \"loadBalancer\": {\n");
+    stats.append("    \"port\": ").append(config.getLoadBalancerPort()).append(",\n");
+    stats.append("    \"uptime\": ").append(uptimeSeconds).append(",\n");
+    stats.append("    \"uptimeFormatted\": \"").append(formatUptime(uptimeSeconds)).append("\",\n");
+    stats.append("    \"virtualNodesPerServer\": ").append(config.getVirtualNodes()).append("\n");
+    stats.append("  },\n");
+
+    // Performance Metrics
+    stats.append("  \"performance\": {\n");
+    stats.append("    \"totalRequests\": ").append(requestCount).append(",\n");
+    stats.append("    \"totalErrors\": ").append(errorCount).append(",\n");
+    stats.append("    \"errorRate\": ").append(String.format("%.2f", errorRate)).append(",\n");
+    stats.append("    \"requestsPerSecond\": ").append(String.format("%.2f", requestsPerSecond)).append(",\n");
+    stats.append("    \"currentLoad\": ")
+      .append(String.format("%.2f", requestsPerInterval / (double) AUTO_SCALE_CHECK_INTERVAL)).append(",\n");
+    stats.append("    \"avgRequestsPerServer\": ").append(String.format("%.2f", avgRequestsPerServer)).append("\n");
+    stats.append("  },\n");
+
+    // Auto-scaling Info
+    stats.append("  \"autoScaling\": {\n");
+    stats.append("    \"enabled\": ").append(autoScalingEnabled).append(",\n");
+    stats.append("    \"minServers\": ").append(MIN_SERVERS).append(",\n");
+    stats.append("    \"maxServers\": ").append(MAX_SERVERS).append(",\n");
+    stats.append("    \"scaleUpThreshold\": ").append(SCALE_UP_THRESHOLD).append(",\n");
+    stats.append("    \"scaleDownThreshold\": ").append(SCALE_DOWN_THRESHOLD).append(",\n");
+    stats.append("    \"checkInterval\": ").append(AUTO_SCALE_CHECK_INTERVAL).append(",\n");
+    stats.append("    \"lastScaleAction\": \"").append(lastScaleAction).append("\",\n");
+    stats.append("    \"lastScaleTime\": ").append(lastScaleTime).append("\n");
+    stats.append("  },\n");
+
+    // Hash Ring Stats
+    stats.append("  \"hashRing\": {\n");
+    stats.append("    \"totalVirtualNodes\": ").append(currentServerCount * config.getVirtualNodes()).append(",\n");
+    stats.append("    \"physicalNodes\": ").append(currentServerCount).append("\n");
+    stats.append("  },\n");
+
+    // Servers Info
+    stats.append("  \"servers\": {\n");
+    stats.append("    \"total\": ").append(currentServerCount).append(",\n");
+    stats.append("    \"active\": ").append(serverManager.getNodes().stream().filter(Node::isActive).count())
+      .append(",\n");
+    stats.append("    \"inactive\": ").append(serverManager.getNodes().stream().filter(n -> !n.isActive()).count())
+      .append(",\n");
+    stats.append("    \"nodes\": [\n");
+
+    List<Node> nodes = new ArrayList<>(serverManager.getNodes());
+    for (int i = 0; i < nodes.size(); i++) {
+      Node node = nodes.get(i);
+      long nodeUptime = (System.currentTimeMillis() - serverStartTimes.getOrDefault(node.getId(), startTime)) / 1000;
+      long nodeRequests = serverRequestCounts.getOrDefault(node.getId(), 0L);
+      double nodeLoad = nodeUptime > 0 ? (double) nodeRequests / nodeUptime : 0;
+
+      stats.append("      {\n");
+      stats.append("        \"id\": \"").append(node.getId()).append("\",\n");
+      stats.append("        \"address\": \"").append(node.getAddress()).append("\",\n");
+      stats.append("        \"active\": ").append(node.isActive()).append(",\n");
+      stats.append("        \"uptime\": ").append(nodeUptime).append(",\n");
+      stats.append("        \"uptimeFormatted\": \"").append(formatUptime(nodeUptime)).append("\",\n");
+      stats.append("        \"requestCount\": ").append(nodeRequests).append(",\n");
+      stats.append("        \"requestsPerSecond\": ").append(String.format("%.2f", nodeLoad)).append(",\n");
+      stats.append("        \"loadPercentage\": ")
+        .append(String.format("%.2f", requestCount > 0 ? (double) nodeRequests / requestCount * 100 : 0)).append("\n");
+      stats.append("      }");
+      if (i < nodes.size() - 1) {
+        stats.append(",");
       }
+      stats.append("\n");
+    }
+
+    stats.append("    ]\n");
+    stats.append("  }\n");
+
+    // Timeline data for charts
+    // stats.append(" \"timeline\": [\n");
+    // synchronized (requestTimeline) {
+    // for (int i = 0; i < requestTimeline.size(); i++) {
+    // TimelineDataPoint point = requestTimeline.get(i);
+    // stats.append(" {\n");
+    // stats.append(" \"timestamp\": ").append(point.timestamp).append(",\n");
+    // stats.append(" \"requestsPerSecond\": ").append(String.format("%.2f", point.requestsPerSecond))
+    // .append(",\n");
+    // stats.append(" \"serverCount\": ").append(point.serverCount).append("\n");
+    // stats.append(" }");
+    // if (i < requestTimeline.size() - 1) {
+    // stats.append(",");
+    // }
+    // stats.append("\n");
+    // }
+    // }
+    // stats.append(" ]\n");
+
+    stats.append("}\n");
+
+    return stats.toString();
+  }
+
+  /** Format uptime in human-readable format */
+  private String formatUptime(long seconds) {
+    long days = seconds / 86400;
+    long hours = (seconds % 86400) / 3600;
+    long minutes = (seconds % 3600) / 60;
+    long secs = seconds % 60;
+
+    if (days > 0) {
+      return String.format("%dd %dh %dm", days, hours, minutes);
+    } else if (hours > 0) {
+      return String.format("%dh %dm %ds", hours, minutes, secs);
+    } else if (minutes > 0) {
+      return String.format("%dm %ds", minutes, secs);
+    } else {
+      return String.format("%ds", secs);
     }
   }
 
@@ -812,6 +823,10 @@ public class LoadBalancer {
 
     if (httpServer != null) {
       httpServer.stop(0);
+    }
+
+    if (wsServer != null) {
+      wsServer.shutdown();
     }
 
     scheduler.shutdown();

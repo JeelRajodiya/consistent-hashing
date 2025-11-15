@@ -8,7 +8,7 @@ echo "=========================================="
 echo ""
 
 # Check if build is needed
-if [ ! -f "app/build/libs/app.jar" ]; then
+if [ ! -d "app/build/classes/java/main" ]; then
     echo "Building the project..."
     ./gradlew clean build
     if [ $? -ne 0 ]; then
@@ -23,4 +23,5 @@ fi
 echo "Starting Load Balancer..."
 echo ""
 
-java -cp app/build/classes/java/main org.example.App config.properties
+# Build classpath with all dependencies
+./gradlew :app:run --args="config.properties" --console=plain

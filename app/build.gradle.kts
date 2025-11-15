@@ -19,6 +19,8 @@ repositories {
 dependencies {
     // This dependency is used by the application.
     implementation(libs.guava)
+    // WebSocket support
+    implementation("org.java-websocket:Java-WebSocket:1.5.4")
 }
 
 // Apply a specific Java toolchain to ease working on different environments.
@@ -31,6 +33,11 @@ java {
 application {
     // Define the main class for the application.
     mainClass = "org.example.App"
+}
+
+tasks.named<JavaExec>("run") {
+    // Set working directory to project root so config.properties can be found
+    workingDir = rootProject.projectDir
 }
 
 spotless {
