@@ -9,15 +9,56 @@ C_RED='\033[31m'
 C_YELLOW='\033[33m'
 C_CYAN='\033[36m'
 
+# Default values
+DEFAULT_NUM_REQUESTS=50000
+DEFAULT_WORKERS=600
+
 # Load Test Script - Send requests to the Load Balancer
 LB_URL="http://localhost:8080"
-NUM_REQUESTS=50000
+NUM_REQUESTS=$DEFAULT_NUM_REQUESTS
+WORKERS=$DEFAULT_WORKERS
+
+# Parse command line arguments
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        -p)
+            WORKERS="$2"
+            shift 2
+            ;;
+        -h|--help)
+            echo "Usage: $0 [num_requests] [-p workers]"
+            echo ""
+            echo "Arguments:"
+            echo "  num_requests    Number of requests to send (default: $DEFAULT_NUM_REQUESTS)"
+            echo "  -p workers      Number of concurrent workers for xargs (default: $DEFAULT_WORKERS)"
+            echo "  -h, --help      Show this help message"
+            echo ""
+            echo "Examples:"
+            echo "  $0              # Use default values"
+            echo "  $0 10000        # Send 10000 requests with default workers"
+            echo "  $0 10000 -p 300 # Send 10000 requests with 300 workers"
+            echo "  $0 -p 1000      # Use default requests with 1000 workers"
+            exit 0
+            ;;
+        *)
+            if [[ $1 =~ ^[0-9]+$ ]]; then
+                NUM_REQUESTS="$1"
+                shift
+            else
+                echo -e "${C_RED}Error: Invalid argument '$1'${C_RESET}"
+                echo "Use -h or --help for usage information"
+                exit 1
+            fi
+            ;;
+    esac
+done
 
 echo -e "${C_BOLD}${C_BLUE}==========================================${C_RESET}"
 echo -e "${C_BOLD}${C_BLUE}      Load Balancer - Load Test         ${C_RESET}"
 echo -e "${C_BOLD}${C_BLUE}==========================================${C_RESET}"
 echo -e "${C_CYAN}Target:${C_RESET} $LB_URL"
 echo -e "${C_CYAN}Requests:${C_RESET} $NUM_REQUESTS"
+echo -e "${C_CYAN}Workers:${C_RESET} $WORKERS"
 echo ""
 
 # Check if load balancer is running
@@ -51,12 +92,12 @@ echo -e "${C_BOLD}${C_CYAN}🚀 Sending $NUM_REQUESTS requests...${C_RESET}"
 START_TIME=$(date +%s)
 
 # Send requests in parallel with maximum concurrency
-# Using xargs for efficient parallelization with 300 concurrent workers
-seq 1 $NUM_REQUESTS | xargs -P 300 -I {} sh -c '
+# Using xargs for efficient parallelization
+seq 1 $NUM_REQUESTS | xargs -P $WORKERS -I {} sh -c '
     PATH_VARIANT=$((({} - 1) % 100))
     curl -s "'$LB_URL'/api/resource/$PATH_VARIANT" | grep -o "\"server\":\"[^\"]*\"" >> "'$TEMP_FILE'"
     if [ $(({} % 1000)) -eq 0 ]; then
-        echo -ne "'${C_GREEN}'Progress: {}/'$NUM_REQUESTS' requests sent\r'${C_RESET}'" >&2
+        printf "\033[32mProgress: {}/'$NUM_REQUESTS' requests sent\r\033[0m" >&2
     fi
 '
 
