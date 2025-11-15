@@ -31,13 +31,13 @@ public class SimpleServer {
     server.createContext("/health", new HealthHandler());
     server.setExecutor(Executors.newFixedThreadPool(10));
     server.start();
-    LOGGER.log(Level.INFO, "🚀 {0} started on port {1}", new Object[] { serverId, port });
+    LOGGER.log(Level.INFO, "{0} started on port {1}", new Object[] { serverId, port });
   }
 
   public void stop() {
     if (server != null) {
       server.stop(0);
-      LOGGER.log(Level.INFO, "🛑 {0} stopped", serverId);
+      LOGGER.log(Level.INFO, "{0} stopped", serverId);
     }
   }
 

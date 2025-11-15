@@ -11,7 +11,7 @@ C_CYAN='\033[36m'
 
 # Load Test Script - Send requests to the Load Balancer
 LB_URL="http://localhost:8080"
-NUM_REQUESTS=10000
+NUM_REQUESTS=50000
 
 echo -e "${C_BOLD}${C_BLUE}==========================================${C_RESET}"
 echo -e "${C_BOLD}${C_BLUE}      Load Balancer - Load Test         ${C_RESET}"
@@ -50,19 +50,15 @@ echo -e "${C_BOLD}${C_CYAN}🚀 Sending $NUM_REQUESTS requests...${C_RESET}"
 # Progress indicators
 START_TIME=$(date +%s)
 
-# Send requests in parallel
-for i in $(seq 1 $NUM_REQUESTS); do
-    PATH_VARIANT=$((i % 100))
-    curl -s "$LB_URL/api/resource/$PATH_VARIANT" | grep -o '"server":"[^"]*"' >> "$TEMP_FILE" &
-    
-    if [ $((i % 50)) -eq 0 ]; then
-        echo -ne "${C_GREEN}Progress: $i/$NUM_REQUESTS requests sent\r${C_RESET}"
+# Send requests in parallel with maximum concurrency
+# Using xargs for efficient parallelization with 300 concurrent workers
+seq 1 $NUM_REQUESTS | xargs -P 300 -I {} sh -c '
+    PATH_VARIANT=$((({} - 1) % 100))
+    curl -s "'$LB_URL'/api/resource/$PATH_VARIANT" | grep -o "\"server\":\"[^\"]*\"" >> "'$TEMP_FILE'"
+    if [ $(({} % 1000)) -eq 0 ]; then
+        echo -ne "'${C_GREEN}'Progress: {}/'$NUM_REQUESTS' requests sent\r'${C_RESET}'" >&2
     fi
-    
-    if [ $((i % 20)) -eq 0 ]; then
-        wait
-    fi
-done
+'
 
 # Wait for all background jobs to complete
 wait

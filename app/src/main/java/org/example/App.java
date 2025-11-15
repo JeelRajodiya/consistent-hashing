@@ -3,10 +3,10 @@ package org.example;
 import java.util.logging.ConsoleHandler;
 import java.util.logging.Level;
 import java.util.logging.Logger;
-import java.util.logging.SimpleFormatter;
 
 import org.example.config.ServerConfig;
 import org.example.loadbalancer.LoadBalancer;
+import org.example.util.ColoredConsoleFormatter;
 
 /** Main application entry point for the Consistent Hash Load Balancer */
 public class App {
@@ -35,12 +35,12 @@ public class App {
 
       // Add shutdown hook
       Runtime.getRuntime().addShutdownHook(new Thread(() -> {
-        LOGGER.info("\nShutdown signal received...");
+        LOGGER.info("Shutdown signal received");
         loadBalancer.stop();
       }));
 
       // Keep the application running
-      LOGGER.info("\nApplication is running. Press Ctrl+C to stop.\n");
+      LOGGER.info("Application running. Press Ctrl+C to stop");
       Thread.currentThread().join();
 
     } catch (Exception e) {
@@ -59,10 +59,10 @@ public class App {
       rootLogger.removeHandler(handler);
     }
 
-    // Add custom console handler
+    // Add custom console handler with colored formatter
     ConsoleHandler consoleHandler = new ConsoleHandler();
     consoleHandler.setLevel(Level.INFO);
-    consoleHandler.setFormatter(new SimpleFormatter());
+    consoleHandler.setFormatter(new ColoredConsoleFormatter());
     rootLogger.addHandler(consoleHandler);
   }
 }

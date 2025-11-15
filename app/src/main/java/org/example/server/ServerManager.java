@@ -69,7 +69,7 @@ public class ServerManager {
       Thread.currentThread().interrupt();
     }
 
-    LOGGER.log(Level.INFO, "✓ Server {0} started on port {1}", new Object[] { nodeId, port });
+    LOGGER.log(Level.INFO, "Server {0} started on port {1}", new Object[] { nodeId, port });
     return node;
   }
 
@@ -80,7 +80,7 @@ public class ServerManager {
       process.destroy();
       serverProcesses.remove(nodeId);
       nodes.remove(nodeId);
-      LOGGER.log(Level.INFO, "✗ Server {0} stopped", nodeId);
+      LOGGER.log(Level.INFO, "Server {0} stopped", nodeId);
     }
   }
 

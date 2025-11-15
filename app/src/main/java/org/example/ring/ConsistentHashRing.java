@@ -51,7 +51,7 @@ public class ConsistentHashRing {
     }
 
     nodeHashes.put(node.getId(), hashes);
-    LOGGER.log(Level.INFO, "✓ Added node {0} to the ring with {1} virtual nodes. Total nodes: {2}",
+    LOGGER.log(Level.INFO, "Added node {0} with {1} virtual nodes (total: {2} nodes)",
       new Object[] { node.getId(), virtualNodes, nodeHashes.size() });
   }
 
@@ -68,8 +68,7 @@ public class ConsistentHashRing {
     }
 
     nodeHashes.remove(nodeId);
-    LOGGER.log(Level.INFO, "✗ Removed node {0} from the ring. Total nodes: {1}",
-      new Object[] { nodeId, nodeHashes.size() });
+    LOGGER.log(Level.INFO, "Removed node {0} (total: {1} nodes)", new Object[] { nodeId, nodeHashes.size() });
   }
 
   /** Get the node responsible for the given key */

@@ -72,7 +72,7 @@ public class LoadBalancer {
 
     // Start initial servers
     int initialCount = config.getInitialServerCount();
-    LOGGER.log(Level.INFO, "Starting {0} initial servers...", initialCount);
+    LOGGER.log(Level.INFO, "Starting {0} initial servers", initialCount);
 
     for (int i = 0; i < initialCount; i++) {
       Node node = serverManager.startServer();
@@ -96,13 +96,13 @@ public class LoadBalancer {
     httpServer.start();
 
     LOGGER.info("========================================");
-    LOGGER.log(Level.INFO, "🎯 Load Balancer started on port {0}", lbPort);
-    LOGGER.log(Level.INFO, "📊 Access stats at: http://localhost:{0}/stats", lbPort);
-    LOGGER.log(Level.INFO, "➕ Add server: http://localhost:{0}/add-server", lbPort);
-    LOGGER.log(Level.INFO, "➖ Remove server: http://localhost:{0}/remove-server?id=<server-id>", lbPort);
-    LOGGER.log(Level.INFO, "📈 Scale up: http://localhost:{0}/scale-up?count=<number>", lbPort);
-    LOGGER.log(Level.INFO, "📉 Scale down: http://localhost:{0}/scale-down?count=<number>", lbPort);
-    LOGGER.log(Level.INFO, "⚖️  Scale to: http://localhost:{0}/scale?target=<number>", lbPort);
+    LOGGER.log(Level.INFO, "Load Balancer started on port {0}", lbPort);
+    LOGGER.log(Level.INFO, "Stats: http://localhost:{0}/stats", lbPort);
+    LOGGER.log(Level.INFO, "Add server: http://localhost:{0}/add-server", lbPort);
+    LOGGER.log(Level.INFO, "Remove server: http://localhost:{0}/remove-server?id=<server-id>", lbPort);
+    LOGGER.log(Level.INFO, "Scale up: http://localhost:{0}/scale-up?count=<number>", lbPort);
+    LOGGER.log(Level.INFO, "Scale down: http://localhost:{0}/scale-down?count=<number>", lbPort);
+    LOGGER.log(Level.INFO, "Scale to: http://localhost:{0}/scale?target=<number>", lbPort);
     LOGGER.info("========================================");
 
     // Start health check scheduler
@@ -120,10 +120,10 @@ public class LoadBalancer {
         for (Node node : serverManager.getNodes()) {
           boolean healthy = serverManager.isServerHealthy(node);
           if (!healthy && node.isActive()) {
-            LOGGER.log(Level.WARNING, "⚠️  Node {0} is unhealthy!", node.getId());
+            LOGGER.log(Level.WARNING, "Node {0} is unhealthy", node.getId());
             node.setActive(false);
           } else if (healthy && !node.isActive()) {
-            LOGGER.log(Level.INFO, "✓ Node {0} is back online!", node.getId());
+            LOGGER.log(Level.INFO, "Node {0} recovered", node.getId());
             node.setActive(true);
           }
         }
@@ -136,15 +136,15 @@ public class LoadBalancer {
   /** Start auto-scaling based on request load */
   private void startAutoScaling() {
     if (!autoScalingEnabled) {
-      LOGGER.info("⚠️  Auto-scaling is DISABLED");
+      LOGGER.info("Auto-scaling disabled");
       return;
     }
 
-    LOGGER.info("🔄 Auto-scaling ENABLED:");
-    LOGGER.log(Level.INFO, "   - Scale UP when: > {0} requests/second", SCALE_UP_THRESHOLD);
-    LOGGER.log(Level.INFO, "   - Scale DOWN when: < {0} requests/second", SCALE_DOWN_THRESHOLD);
-    LOGGER.log(Level.INFO, "   - Check interval: {0} seconds", AUTO_SCALE_CHECK_INTERVAL);
-    LOGGER.log(Level.INFO, "   - Min servers: {0}, Max servers: {1}", new Object[] { MIN_SERVERS, MAX_SERVERS });
+    LOGGER.info("Auto-scaling enabled:");
+    LOGGER.log(Level.INFO, "  Scale up threshold: {0} req/s", SCALE_UP_THRESHOLD);
+    LOGGER.log(Level.INFO, "  Scale down threshold: {0} req/s", SCALE_DOWN_THRESHOLD);
+    LOGGER.log(Level.INFO, "  Check interval: {0}s", AUTO_SCALE_CHECK_INTERVAL);
+    LOGGER.log(Level.INFO, "  Server range: {0}-{1}", new Object[] { MIN_SERVERS, MAX_SERVERS });
 
     autoScaleScheduler.scheduleAtFixedRate(() -> {
       try {
@@ -158,7 +158,7 @@ public class LoadBalancer {
 
         int requestsPerServer = currentServerCount > 0 ? (int) (requestsPerSecond / currentServerCount) : 0;
 
-        LOGGER.log(Level.INFO, "📊 Load Monitor: {0} req/s ({1} requests in {2}s) | {3} servers | {4} req/s per server",
+        LOGGER.log(Level.INFO, "Load: {0} req/s ({1} reqs in {2}s) | {3} servers | {4} req/s per server",
           new Object[] { String.format("%.1f", requestsPerSecond), requestsPerInterval, AUTO_SCALE_CHECK_INTERVAL,
               currentServerCount, requestsPerServer });
 
@@ -168,14 +168,14 @@ public class LoadBalancer {
           int serversToAdd = Math.min(3, Math.max(1, (int) (requestsPerSecond / SCALE_UP_THRESHOLD)));
           serversToAdd = Math.min(serversToAdd, MAX_SERVERS - currentServerCount);
 
-          LOGGER.log(Level.INFO, "📈 AUTO-SCALE UP: High load detected! Adding {0} server(s)...", serversToAdd);
+          LOGGER.log(Level.INFO, "AUTO-SCALE UP: Adding {0} server(s)", serversToAdd);
 
           for (int i = 0; i < serversToAdd; i++) {
             Node node = serverManager.startServer();
             hashRing.addNode(node);
           }
 
-          LOGGER.log(Level.INFO, "✓ Scaled up to {0} servers", serverManager.getServerCount());
+          LOGGER.log(Level.INFO, "Scaled up to {0} servers", serverManager.getServerCount());
         } // Scale down if load is low (but keep at least MIN_SERVERS)
         else if (requestsPerSecond < SCALE_DOWN_THRESHOLD && currentServerCount > MIN_SERVERS) {
           // Only scale down if load has been consistently low
@@ -187,7 +187,7 @@ public class LoadBalancer {
             serversToRemove = Math.min(1, serversToRemove);
           }
 
-          LOGGER.log(Level.INFO, "📉 AUTO-SCALE DOWN: Low load detected. Removing {0} server(s)...", serversToRemove);
+          LOGGER.log(Level.INFO, "AUTO-SCALE DOWN: Removing {0} server(s)", serversToRemove);
 
           List<Node> nodes = new ArrayList<>(serverManager.getNodes());
           for (int i = 0; i < serversToRemove && nodes.size() > MIN_SERVERS; i++) {
@@ -196,7 +196,7 @@ public class LoadBalancer {
             serverManager.stopServer(node.getId());
           }
 
-          LOGGER.log(Level.INFO, "✓ Scaled down to {0} servers", serverManager.getServerCount());
+          LOGGER.log(Level.INFO, "Scaled down to {0} servers", serverManager.getServerCount());
         }
 
       } catch (IOException e) {
@@ -404,7 +404,7 @@ public class LoadBalancer {
 
       try {
         List<String> addedServers = new ArrayList<>();
-        LOGGER.log(Level.INFO, "📈 Scaling up by {0} server(s)...", count);
+        LOGGER.log(Level.INFO, "Scaling up by {0} server(s)", count);
 
         for (int i = 0; i < count; i++) {
           Node node = serverManager.startServer();
@@ -472,7 +472,7 @@ public class LoadBalancer {
 
       try {
         List<String> removedServers = new ArrayList<>();
-        LOGGER.log(Level.INFO, "📉 Scaling down by {0} server(s)...", count);
+        LOGGER.log(Level.INFO, "Scaling down by {0} server(s)", count);
 
         // Get list of servers and remove the last N servers
         List<Node> nodes = new ArrayList<>(serverManager.getNodes());
@@ -549,8 +549,7 @@ public class LoadBalancer {
           // Scale up
           changeCount = targetCount - currentCount;
           action = "scaled up";
-          LOGGER.log(Level.INFO, "⚖️  Scaling to {0} servers (adding {1})...",
-            new Object[] { targetCount, changeCount });
+          LOGGER.log(Level.INFO, "Scaling to {0} servers (adding {1})", new Object[] { targetCount, changeCount });
 
           for (int i = 0; i < changeCount; i++) {
             Node node = serverManager.startServer();
@@ -562,8 +561,7 @@ public class LoadBalancer {
           // Scale down
           changeCount = currentCount - targetCount;
           action = "scaled down";
-          LOGGER.log(Level.INFO, "⚖️  Scaling to {0} servers (removing {1})...",
-            new Object[] { targetCount, changeCount });
+          LOGGER.log(Level.INFO, "Scaling to {0} servers (removing {1})", new Object[] { targetCount, changeCount });
 
           List<Node> nodes = new ArrayList<>(serverManager.getNodes());
           for (int i = 0; i < changeCount; i++) {
