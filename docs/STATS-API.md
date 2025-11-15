@@ -149,8 +149,17 @@ The enhanced stats endpoint now provides comprehensive metrics for building a be
 - **uptime**: Server uptime in seconds
 - **uptimeFormatted**: Human-readable uptime
 - **requestCount**: Total requests handled by this server
-- **requestsPerSecond**: Average throughput for this server
-- **loadPercentage**: Percentage of total requests handled
+- **requestsPerSecond**: Average throughput for this server (requests/second)
+- **loadPercentage**: Percentage of this server's capacity being utilized
+  - **Capacity per server** = `scaleUpThreshold / serverCount`
+  - **Load %** = `(server req/s / capacity per server) * 100`
+  - **0-80%** = Healthy, within capacity (GREEN)
+  - **80-100%** = Near capacity (YELLOW)
+  - **>100%** = Over capacity, should trigger scale-up (RED)
+  - Example: If scaleUpThreshold=100 req/s and 4 servers exist:
+    - Each server's capacity = 25 req/s (100%)
+    - Server handling 20 req/s → 80% load (healthy)
+    - Server handling 30 req/s → 120% load (overloaded!)
 
 ### 📈 Timeline Data (for charts)
 

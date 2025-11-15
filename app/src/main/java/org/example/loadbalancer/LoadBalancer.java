@@ -191,8 +191,8 @@ public class LoadBalancer {
 
         // Scale up if load is high
         if (requestsPerSecond > SCALE_UP_THRESHOLD && currentServerCount < MAX_SERVERS) {
-          // Calculate how many servers to add (at least 1, max 3 at a time)
-          int serversToAdd = Math.min(3, Math.max(1, (int) (requestsPerSecond / SCALE_UP_THRESHOLD)));
+          // Calculate how many servers to add (at least 1, max 20 at a time)
+          int serversToAdd = Math.min(20, Math.max(1, (int) (requestsPerSecond / SCALE_UP_THRESHOLD)));
           serversToAdd = Math.min(serversToAdd, MAX_SERVERS - currentServerCount);
 
           LOGGER.log(Level.INFO, "AUTO-SCALE UP: Adding {0} server(s)", serversToAdd);
@@ -327,6 +327,9 @@ public class LoadBalancer {
     int currentServerCount = serverManager.getServerCount();
     double avgRequestsPerServer = currentServerCount > 0 ? (double) requestCount / currentServerCount : 0;
 
+    // Calculate current instantaneous load (recent request rate)
+    double currentLoad = requestsPerInterval / (double) AUTO_SCALE_CHECK_INTERVAL;
+
     StringBuilder stats = new StringBuilder();
     stats.append("{\n");
 
@@ -344,8 +347,10 @@ public class LoadBalancer {
     stats.append("    \"totalErrors\": ").append(errorCount).append(",\n");
     stats.append("    \"errorRate\": ").append(String.format("%.2f", errorRate)).append(",\n");
     stats.append("    \"requestsPerSecond\": ").append(String.format("%.2f", requestsPerSecond)).append(",\n");
-    stats.append("    \"currentLoad\": ")
-      .append(String.format("%.2f", requestsPerInterval / (double) AUTO_SCALE_CHECK_INTERVAL)).append(",\n");
+    stats.append("    \"currentLoad\": ").append(String.format("%.2f", currentLoad)).append(",\n");
+    stats.append("    \"currentLoadPercentage\": ")
+      .append(String.format("%.2f", SCALE_UP_THRESHOLD > 0 ? (currentLoad / SCALE_UP_THRESHOLD) * 100 : 0))
+      .append(",\n");
     stats.append("    \"avgRequestsPerServer\": ").append(String.format("%.2f", avgRequestsPerServer)).append("\n");
     stats.append("  },\n");
 
@@ -376,12 +381,21 @@ public class LoadBalancer {
       .append(",\n");
     stats.append("    \"nodes\": [\n");
 
+    // Calculate per-server capacity based on recent load
+    double perServerCapacity = currentServerCount > 0
+      ? (requestsPerInterval / (double) AUTO_SCALE_CHECK_INTERVAL) / currentServerCount
+      : 0;
+
     List<Node> nodes = new ArrayList<>(serverManager.getNodes());
     for (int i = 0; i < nodes.size(); i++) {
       Node node = nodes.get(i);
       long nodeUptime = (System.currentTimeMillis() - serverStartTimes.getOrDefault(node.getId(), startTime)) / 1000;
       long nodeRequests = serverRequestCounts.getOrDefault(node.getId(), 0L);
-      double nodeLoad = nodeUptime > 0 ? (double) nodeRequests / nodeUptime : 0;
+      double nodeRequestsPerSecond = nodeUptime > 0 ? (double) nodeRequests / nodeUptime : 0;
+
+      // Calculate load percentage based on deviation from the average number of requests.
+      // This avoids spikes when a server has low uptime.
+      double nodeLoadPercentage = avgRequestsPerServer > 0 ? (nodeRequests / avgRequestsPerServer) * 100 : 0;
 
       stats.append("      {\n");
       stats.append("        \"id\": \"").append(node.getId()).append("\",\n");
@@ -390,9 +404,9 @@ public class LoadBalancer {
       stats.append("        \"uptime\": ").append(nodeUptime).append(",\n");
       stats.append("        \"uptimeFormatted\": \"").append(formatUptime(nodeUptime)).append("\",\n");
       stats.append("        \"requestCount\": ").append(nodeRequests).append(",\n");
-      stats.append("        \"requestsPerSecond\": ").append(String.format("%.2f", nodeLoad)).append(",\n");
-      stats.append("        \"loadPercentage\": ")
-        .append(String.format("%.2f", requestCount > 0 ? (double) nodeRequests / requestCount * 100 : 0)).append("\n");
+      stats.append("        \"requestsPerSecond\": ").append(String.format("%.2f", nodeRequestsPerSecond))
+        .append(",\n");
+      stats.append("        \"loadPercentage\": ").append(String.format("%.2f", nodeLoadPercentage)).append("\n");
       stats.append("      }");
       if (i < nodes.size() - 1) {
         stats.append(",");
