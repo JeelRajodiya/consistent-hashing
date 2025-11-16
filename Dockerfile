@@ -8,7 +8,7 @@ WORKDIR /app/ui
 
 # Copy UI project files and install dependencies
 COPY ui/package.json ui/pnpm-lock.yaml ./
-RUN pnpm install --frozen-lockfile
+RUN pnpm install --frozen-lockfile --shamefully-hoist
 
 # Copy the rest of the UI code and build
 COPY ui/ ./
