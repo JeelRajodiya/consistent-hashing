@@ -1,0 +1,19 @@
+# Docker build context
+.gradle
+.idea
+.vscode
+build
+app/build
+ui/.nuxt
+ui/.output
+ui/node_modules
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Log files
+*.log
+
+# Local properties
+local.properties
