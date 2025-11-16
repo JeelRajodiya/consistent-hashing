@@ -11,7 +11,7 @@ C_CYAN='\033[36m'
 
 # Default values
 DEFAULT_NUM_REQUESTS=50000
-DEFAULT_WORKERS=600
+DEFAULT_WORKERS=50
 
 # Load Test Script - Send requests to the Load Balancer
 LB_URL="http://localhost:8080"

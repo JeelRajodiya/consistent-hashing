@@ -138,6 +138,23 @@ const clearHistory = () => {
   messageHistory.value = [];
 };
 
+const isAddingServer = ref(false);
+const AddServerHandler = () => {
+  // send a get request to localhost:8080/add-server,
+  isAddingServer.value = true;
+  fetch("http://localhost:8080/add-server")
+    .then((response) => {
+      if (!response.ok) {
+        throw new Error("Network response was not ok");
+      }
+      return response.json();
+    })
+
+    .finally(() => {
+      isAddingServer.value = false;
+    });
+};
+
 // Lifecycle
 onMounted(() => {
   connect();
@@ -146,6 +163,8 @@ onMounted(() => {
 onUnmounted(() => {
   disconnect();
 });
+
+const autoScale = ref(true);
 </script>
 <template>
   <div class="flex items-center justify-center">
@@ -186,7 +205,20 @@ onUnmounted(() => {
           <StatCard title="Hash Ring" :data="statsData?.hashRing!" />
           <StatCard title="Performance" :data="statsData?.performance!" />
         </div>
-        <ServerTable :data="statsData?.servers.nodes!" />
+        <div class="flex flex-col flex-1">
+          <div class="flex justify-between">
+            <USwitch v-model="autoScale" class="mb-4" label="Auto Scaling" />
+            <UButton
+              label="Add new Server"
+              icon="i-lucide-plus"
+              size="sm"
+              class="h-fit"
+              :loading="isAddingServer"
+              @click="AddServerHandler"
+            />
+          </div>
+          <ServerTable :data="statsData?.servers.nodes!" />
+        </div>
       </div>
     </div>
   </div>

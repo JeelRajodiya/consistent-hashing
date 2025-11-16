@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { h } from "vue";
+import { h, ref } from "vue";
 import type { TableColumn } from "@nuxt/ui";
+import { UButton } from "#components";
 
 type Server = {
   id: string;
@@ -68,7 +69,45 @@ const columns: TableColumn<Server>[] = [
       );
     },
   },
+  {
+    accessorKey: "actions",
+    header: "",
+    cell: ({ row }) => {
+      const serverId = row.original.id;
+      return h(UButton, {
+        icon: "i-lucide-trash",
+        color: "error",
+        variant: "ghost",
+        loading: removingServerIds.value.has(serverId),
+        onClick: () => removeServer(serverId),
+        size: "sm",
+      });
+    },
+  },
 ];
+
+const removingServerIds = ref(new Set<string>());
+
+const removeServer = async (serverId: string) => {
+  if (removingServerIds.value.has(serverId)) return;
+
+  removingServerIds.value.add(serverId);
+  try {
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    const response = await fetch(
+      `http://localhost:8080/remove-server?id=${serverId}`
+    );
+    if (!response.ok) {
+      throw new Error("Network response was not ok");
+    }
+    // The server list will update via the WebSocket connection, so no need to manually remove from the table.
+  } catch (error) {
+    console.error(`Failed to remove server ${serverId}:`, error);
+    // Optionally, show a toast or notification to the user about the failure.
+  } finally {
+    removingServerIds.value.delete(serverId);
+  }
+};
 </script>
 
 <template>
