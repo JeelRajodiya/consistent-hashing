@@ -21,6 +21,7 @@ if ($stoppedContainer) {
 docker run -d `
     --name cloud `
     -p 8080:8080 `
+    -p 8081:8081 `
     -p 3000:3000 `
     cloud
 
