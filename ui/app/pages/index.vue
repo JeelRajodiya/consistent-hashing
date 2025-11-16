@@ -148,44 +148,46 @@ onUnmounted(() => {
 });
 </script>
 <template>
-  <div class="flex flex-col h-full py-16 px-64 space-y-16 w-full">
-    <div class="flex flex-col justify-center items-center">
-      <div class="w-fit flex flex-col gap-2">
-        <div
-          class="font-black text-4xl text-primary tracking-tight w-fit leading-none"
-        >
-          <div>CSE540</div>
-          <div>Load Balancer Live Analytics</div>
-        </div>
-        <div class="flex justify-between w-full">
-          <div class="font-semibold">
-            <span> Port: </span>
-            <span class="text-muted">
-              {{ statsData?.loadBalancer.port }}
-            </span>
+  <div class="flex items-center justify-center">
+    <div class="flex flex-col h-full py-16 max-w-fit space-y-16 w-full">
+      <div class="flex flex-col justify-center items-center">
+        <div class="w-fit flex flex-col gap-2">
+          <div
+            class="font-black text-4xl text-primary tracking-tight w-fit leading-none"
+          >
+            <div>CSE540</div>
+            <div>Load Balancer Live Analytics</div>
           </div>
-          <div class="font-semibold">
-            <span> Virtual Nodes per Server </span>
-            <span class="text-muted">
-              {{ statsData?.loadBalancer.virtualNodesPerServer }}
-            </span>
+          <div class="flex justify-between w-full">
+            <div class="font-semibold">
+              <span> Port: </span>
+              <span class="text-muted">
+                {{ statsData?.loadBalancer.port }}
+              </span>
+            </div>
+            <div class="font-semibold">
+              <span> Virtual Nodes per Server </span>
+              <span class="text-muted">
+                {{ statsData?.loadBalancer.virtualNodesPerServer }}
+              </span>
+            </div>
           </div>
         </div>
       </div>
-    </div>
-    <div class="flex flex-row gap-16">
-      <div class="w-fit flex flex-col gap-4">
-        <div class="text-2xl flex flex-row justify-center items-center">
-          <span class="circle" />
-          <span class="text-muted">Total Requests Handled:</span>
-          <span class="font-bold ml-2">
-            {{ formatNumber(statsData?.performance.totalRequests) }}
-          </span>
+      <div class="flex flex-row gap-16">
+        <div class="w-fit flex flex-col gap-4">
+          <div class="text-2xl flex flex-row justify-center items-center">
+            <span class="circle" />
+            <span class="text-muted">Total Requests Handled:</span>
+            <span class="font-bold ml-2">
+              {{ formatNumber(statsData?.performance.totalRequests) }}
+            </span>
+          </div>
+          <StatCard title="Hash Ring" :data="statsData?.hashRing!" />
+          <StatCard title="Performance" :data="statsData?.performance!" />
         </div>
-        <StatCard title="Hash Ring" :data="statsData?.hashRing!" />
-        <StatCard title="Performance" :data="statsData?.performance!" />
+        <ServerTable :data="statsData?.servers.nodes!" />
       </div>
-      <ServerTable :data="statsData?.servers.nodes!" />
     </div>
   </div>
 </template>

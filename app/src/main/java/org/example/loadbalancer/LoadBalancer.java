@@ -39,6 +39,7 @@ public class LoadBalancer {
   private StatsWebSocketServer wsServer;
   private final ScheduledExecutorService scheduler;
   private final ScheduledExecutorService autoScaleScheduler;
+  private final ScheduledExecutorService rpsScheduler;
   private long requestCount = 0;
   private long errorCount = 0;
   private final long startTime;
@@ -52,6 +53,8 @@ public class LoadBalancer {
   // Per-server request tracking
   private final Map<String, Long> serverRequestCounts = new ConcurrentHashMap<>();
   private final Map<String, Long> serverStartTimes = new ConcurrentHashMap<>();
+  private final Map<String, Double> serverRequestsPerSecond = new ConcurrentHashMap<>();
+  private final Map<String, Long> serverLastRequestCounts = new ConcurrentHashMap<>();
 
   // Timeline data (last 60 data points)
   private final List<TimelineDataPoint> requestTimeline = new ArrayList<>();
@@ -69,6 +72,7 @@ public class LoadBalancer {
     this.serverManager = new ServerManager(config);
     this.scheduler = Executors.newScheduledThreadPool(1);
     this.autoScaleScheduler = Executors.newScheduledThreadPool(1);
+    this.rpsScheduler = Executors.newScheduledThreadPool(1);
     this.startTime = System.currentTimeMillis();
 
     // Load auto-scaling configuration
@@ -134,6 +138,9 @@ public class LoadBalancer {
 
     // Start auto-scaling monitor
     startAutoScaling();
+
+    // Start per-server requests per second calculation
+    startRpsCalculator();
   }
 
   /** Start periodic health checks */
@@ -192,8 +199,8 @@ public class LoadBalancer {
         // Scale up if load is high
         if (requestsPerSecond > SCALE_UP_THRESHOLD && currentServerCount < MAX_SERVERS) {
           // Calculate how many servers to add (at least 1, max 20 at a time)
-          int serversToAdd = Math.min(20, Math.max(1, (int) (requestsPerSecond / SCALE_UP_THRESHOLD)));
-          serversToAdd = Math.min(serversToAdd, MAX_SERVERS - currentServerCount);
+          int serversToAdd = (int) Math.ceil(requestsPerSecond / SCALE_UP_THRESHOLD);
+          serversToAdd = Math.max(1, Math.min(serversToAdd, MAX_SERVERS - currentServerCount));
 
           LOGGER.log(Level.INFO, "AUTO-SCALE UP: Adding {0} server(s)", serversToAdd);
 
@@ -202,6 +209,8 @@ public class LoadBalancer {
             hashRing.addNode(node);
             serverStartTimes.put(node.getId(), System.currentTimeMillis());
             serverRequestCounts.put(node.getId(), 0L);
+            serverLastRequestCounts.put(node.getId(), 0L);
+            serverRequestsPerSecond.put(node.getId(), 0.0);
           }
 
           lastScaleTime = System.currentTimeMillis();
@@ -238,6 +247,19 @@ public class LoadBalancer {
         LOGGER.log(Level.WARNING, "Auto-scaling error: {0}", e.getMessage());
       }
     }, AUTO_SCALE_CHECK_INTERVAL, AUTO_SCALE_CHECK_INTERVAL, TimeUnit.SECONDS);
+  }
+
+  /** Start calculating requests per second for each server */
+  private void startRpsCalculator() {
+    rpsScheduler.scheduleAtFixedRate(() -> {
+      for (String serverId : serverRequestCounts.keySet()) {
+        long currentCount = serverRequestCounts.getOrDefault(serverId, 0L);
+        long lastCount = serverLastRequestCounts.getOrDefault(serverId, 0L);
+        double rps = (currentCount - lastCount) / 1.0; // Per second
+        serverRequestsPerSecond.put(serverId, rps);
+        serverLastRequestCounts.put(serverId, currentCount);
+      }
+    }, 1, 1, TimeUnit.SECONDS);
   }
 
   /** Add data point to timeline */
@@ -391,7 +413,7 @@ public class LoadBalancer {
       Node node = nodes.get(i);
       long nodeUptime = (System.currentTimeMillis() - serverStartTimes.getOrDefault(node.getId(), startTime)) / 1000;
       long nodeRequests = serverRequestCounts.getOrDefault(node.getId(), 0L);
-      double nodeRequestsPerSecond = nodeUptime > 0 ? (double) nodeRequests / nodeUptime : 0;
+      double nodeRequestsPerSecond = serverRequestsPerSecond.getOrDefault(node.getId(), 0.0);
 
       // Calculate load percentage based on deviation from the average number of requests.
       // This avoids spikes when a server has low uptime.
@@ -580,6 +602,8 @@ public class LoadBalancer {
           hashRing.addNode(node);
           serverStartTimes.put(node.getId(), System.currentTimeMillis());
           serverRequestCounts.put(node.getId(), 0L);
+          serverLastRequestCounts.put(node.getId(), 0L);
+          serverRequestsPerSecond.put(node.getId(), 0.0);
           addedServers.add(node.getId());
         }
 
@@ -729,6 +753,8 @@ public class LoadBalancer {
             hashRing.addNode(node);
             serverStartTimes.put(node.getId(), System.currentTimeMillis());
             serverRequestCounts.put(node.getId(), 0L);
+            serverLastRequestCounts.put(node.getId(), 0L);
+            serverRequestsPerSecond.put(node.getId(), 0.0);
             changedServers.add(node.getId());
           }
 
@@ -779,10 +805,14 @@ public class LoadBalancer {
         String response = """
           {
             "status": "success",
-            "message": "Successfully """ + action + " to " + targetCount + " servers\",\n" + "  \"previousCount\": "
-          + currentCount + ",\n" + "  \"currentCount\": " + serverManager.getServerCount() + ",\n"
-          + "  \"serversChanged\": " + changedServers.size() + ",\n" + "  \"serverIds\": [" + serversJson.toString()
-          + "]\n" + "}\n";
+            "message": "Successfully %s to %d servers",
+            "previousCount": %d,
+            "currentCount": %d,
+            "serversChanged": %d,
+            "serverIds": [%s]
+          }
+          """.formatted(action, targetCount, currentCount, serverManager.getServerCount(), changedServers.size(),
+          serversJson.toString());
 
         exchange.getResponseHeaders().set("Content-Type", "application/json");
         exchange.sendResponseHeaders(200, response.getBytes(StandardCharsets.UTF_8).length);
@@ -845,6 +875,7 @@ public class LoadBalancer {
 
     scheduler.shutdown();
     autoScaleScheduler.shutdown();
+    rpsScheduler.shutdown();
     serverManager.shutdownAll();
 
     LOGGER.info("Load balancer stopped");

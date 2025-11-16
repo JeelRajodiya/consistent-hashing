@@ -22,9 +22,9 @@ const props = defineProps<Props>();
 // Function to get color based on load percentage
 // Load percentage represents capacity utilization (0-100% = within capacity, >100% = overloaded)
 const getLoadColor = (load: number): string => {
-  if (load < 80) return "text-green-600 dark:text-green-400"; // Healthy - below 80% capacity
-  if (load < 100) return "text-yellow-600 dark:text-yellow-400"; // Warning - approaching capacity
-  return "text-red-600 dark:text-red-400"; // Critical - over capacity, should scale up
+  if (load < 50) return "text-success "; // Healthy - below 50% capacity
+  if (load < 80) return "text-warning "; // Warning - approaching capacity
+  return "text-error"; // Critical - over capacity, should scale up
 };
 
 const columns: TableColumn<Server>[] = [
