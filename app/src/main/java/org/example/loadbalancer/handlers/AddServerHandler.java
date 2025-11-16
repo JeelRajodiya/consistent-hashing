@@ -19,10 +19,7 @@ public class AddServerHandler implements HttpHandler {
   @Override
   public void handle(HttpExchange exchange) throws IOException {
     try {
-      Node node = loadBalancer.getServerManager().startServer();
-      loadBalancer.getHashRing().addNode(node);
-      loadBalancer.getServerStartTimes().put(node.getId(), System.currentTimeMillis());
-      loadBalancer.getServerRequestCounts().put(node.getId(), 0L);
+      Node node = loadBalancer.addServerNode();
 
       loadBalancer.getLogger().info(loadBalancer.getHashRing().getStats());
 

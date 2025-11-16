@@ -5,8 +5,5 @@ export default defineNuxtConfig({
   modules: ["@nuxt/ui", "@nuxtjs/color-mode"],
   css: ["~/assets/css/main.css"],
 
-  colorMode: {
-    preference: "light",
-    fallback: "light",
-  },
+  colorMode: {},
 });

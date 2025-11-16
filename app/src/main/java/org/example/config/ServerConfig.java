@@ -65,6 +65,10 @@ public class ServerConfig {
     return Double.parseDouble(properties.getProperty("autoscaling.scale.down.threshold", "10"));
   }
 
+  public double getAutoScalingTargetAvgReqPerSecond() {
+    return Double.parseDouble(properties.getProperty("autoscaling.target.avg.req.per.second", "100"));
+  }
+
   public String getProperty(String key, String defaultValue) {
     return properties.getProperty(key, defaultValue);
   }

@@ -21,19 +21,11 @@ public class ScaleUpHandler implements HttpHandler {
   @Override
   public void handle(HttpExchange exchange) throws IOException {
     String query = exchange.getRequestURI().getQuery();
-    int count = 1; // Default to 1 server
+    int count = org.example.util.QueryParamParser.getIntParam(query, "count", 1);
 
-    if (query != null && query.startsWith("count=")) {
-      try {
-        count = Integer.parseInt(query.substring(6));
-        if (count < 1 || count > 20) {
-          loadBalancer.sendErrorResponse(exchange, "Count must be between 1 and 20");
-          return;
-        }
-      } catch (NumberFormatException e) {
-        loadBalancer.sendErrorResponse(exchange, "Invalid count parameter");
-        return;
-      }
+    if (count < 1 || count > 20) {
+      loadBalancer.sendErrorResponse(exchange, "Count must be between 1 and 20");
+      return;
     }
 
     try {
@@ -41,12 +33,7 @@ public class ScaleUpHandler implements HttpHandler {
       loadBalancer.getLogger().log(java.util.logging.Level.INFO, "Scaling up by {0} server(s)", count);
 
       for (int i = 0; i < count; i++) {
-        Node node = loadBalancer.getServerManager().startServer();
-        loadBalancer.getHashRing().addNode(node);
-        loadBalancer.getServerStartTimes().put(node.getId(), System.currentTimeMillis());
-        loadBalancer.getServerRequestCounts().put(node.getId(), 0L);
-        loadBalancer.getServerLastRequestCounts().put(node.getId(), 0L);
-        loadBalancer.getServerRequestsPerSecond().put(node.getId(), 0.0);
+        Node node = loadBalancer.addServerNode();
         addedServers.add(node.getId());
       }
 

@@ -19,12 +19,12 @@ public class RemoveServerHandler implements HttpHandler {
   @Override
   public void handle(HttpExchange exchange) throws IOException {
     String query = exchange.getRequestURI().getQuery();
-    if (query == null || !query.startsWith("id=")) {
+    String nodeId = org.example.util.QueryParamParser.getParam(query, "id");
+
+    if (nodeId == null || nodeId.isEmpty()) {
       loadBalancer.sendErrorResponse(exchange, "Missing 'id' parameter");
       return;
     }
-
-    String nodeId = query.substring(3);
     Node node = loadBalancer.getServerManager().getNode(nodeId);
 
     if (node == null) {
@@ -32,10 +32,7 @@ public class RemoveServerHandler implements HttpHandler {
       return;
     }
 
-    loadBalancer.getHashRing().removeNode(nodeId);
-    loadBalancer.getServerManager().stopServer(nodeId);
-    loadBalancer.getServerStartTimes().remove(nodeId);
-    loadBalancer.getServerRequestCounts().remove(nodeId);
+    loadBalancer.removeServerNode(nodeId);
 
     loadBalancer.getLogger().info(loadBalancer.getHashRing().getStats());
 

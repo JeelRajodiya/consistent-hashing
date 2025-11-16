@@ -1,12 +1,8 @@
 package org.example.loadbalancer;
 
-import java.io.BufferedReader;
 import java.io.IOException;
-import java.io.InputStreamReader;
 import java.io.OutputStream;
-import java.net.HttpURLConnection;
 import java.net.InetSocketAddress;
-import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
@@ -15,6 +11,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -48,8 +45,8 @@ public class LoadBalancer {
   private final ScheduledExecutorService scheduler;
   private final ScheduledExecutorService autoScaleScheduler;
   private final ScheduledExecutorService rpsScheduler;
-  private long requestCount = 0;
-  private long errorCount = 0;
+  private final AtomicLong requestCount = new AtomicLong(0);
+  private final AtomicLong errorCount = new AtomicLong(0);
   private final long startTime;
   private long lastScaleTime = 0;
   private String lastScaleAction = "none";
@@ -69,10 +66,11 @@ public class LoadBalancer {
   private final int MAX_TIMELINE_POINTS = 60;
   private final int MIN_SERVERS;
   private final int MAX_SERVERS;
-  private boolean autoScalingEnabled;
+  private volatile boolean autoScalingEnabled;
   private final double SCALE_UP_THRESHOLD;
   private final double SCALE_DOWN_THRESHOLD;
   private final int AUTO_SCALE_CHECK_INTERVAL;
+  private final double TARGET_AVG_REQ_PER_SECOND;
 
   public LoadBalancer(ServerConfig config) {
     this.config = config;
@@ -90,6 +88,7 @@ public class LoadBalancer {
     this.SCALE_UP_THRESHOLD = config.getAutoScalingScaleUpThreshold();
     this.SCALE_DOWN_THRESHOLD = config.getAutoScalingScaleDownThreshold();
     this.AUTO_SCALE_CHECK_INTERVAL = config.getAutoScalingCheckInterval();
+    this.TARGET_AVG_REQ_PER_SECOND = config.getAutoScalingTargetAvgReqPerSecond();
   }
 
   /** Initialize and start the load balancer */
@@ -103,10 +102,7 @@ public class LoadBalancer {
     LOGGER.log(Level.INFO, "Starting {0} initial servers", initialCount);
 
     for (int i = 0; i < initialCount; i++) {
-      Node node = serverManager.startServer();
-      hashRing.addNode(node);
-      serverStartTimes.put(node.getId(), System.currentTimeMillis());
-      serverRequestCounts.put(node.getId(), 0L);
+      addServerNode();
     }
 
     // Log the ring stats
@@ -178,79 +174,113 @@ public class LoadBalancer {
   private void startAutoScaling() {
     LOGGER.info("Starting auto-scaling scheduler...");
     LOGGER.log(Level.INFO, "  Initial state: {0}", autoScalingEnabled ? "enabled" : "disabled");
+    LOGGER.log(Level.INFO, "  Target average requests per second per server: {0}", TARGET_AVG_REQ_PER_SECOND);
     LOGGER.log(Level.INFO, "  Scale up threshold: {0} req/s", SCALE_UP_THRESHOLD);
     LOGGER.log(Level.INFO, "  Scale down threshold: {0} req/s", SCALE_DOWN_THRESHOLD);
     LOGGER.log(Level.INFO, "  Check interval: {0}s", AUTO_SCALE_CHECK_INTERVAL);
     LOGGER.log(Level.INFO, "  Server range: {0}-{1}", new Object[] { MIN_SERVERS, MAX_SERVERS });
 
+    // Initialize lastRequestCount to avoid counting all historical requests in first check
+    lastRequestCount = requestCount.get();
+
     autoScaleScheduler.scheduleAtFixedRate(() -> {
       try {
         // Calculate requests per second in this interval
-        long currentRequests = requestCount;
+        long currentRequests = requestCount.get();
         requestsPerInterval = currentRequests - lastRequestCount;
         lastRequestCount = currentRequests;
 
         double requestsPerSecond = requestsPerInterval / (double) AUTO_SCALE_CHECK_INTERVAL;
         int currentServerCount = serverManager.getServerCount();
 
-        int requestsPerServer = currentServerCount > 0 ? (int) (requestsPerSecond / currentServerCount) : 0;
+        // Calculate average requests per second per server
+        double avgReqPerServer = currentServerCount > 0 ? requestsPerSecond / currentServerCount : 0;
 
         // Add to timeline
         addToTimeline(requestsPerSecond, currentServerCount);
 
-        LOGGER.log(Level.INFO, "Load: {0} req/s ({1} reqs in {2}s) | {3} servers | {4} req/s per server",
+        LOGGER.log(Level.INFO, "Load: {0} req/s ({1} reqs in {2}s) | {3} servers | {4} req/s per server (target: {5})",
           new Object[] { String.format("%.1f", requestsPerSecond), requestsPerInterval, AUTO_SCALE_CHECK_INTERVAL,
-              currentServerCount, requestsPerServer });
+              currentServerCount, String.format("%.1f", avgReqPerServer),
+              String.format("%.1f", TARGET_AVG_REQ_PER_SECOND) });
 
         // Check if auto-scaling is enabled before taking action
         if (!autoScalingEnabled) {
           return;
         }
 
-        // Scale up if load is high
-        if (requestsPerSecond > SCALE_UP_THRESHOLD && currentServerCount < MAX_SERVERS) {
-          // Calculate how many servers to add (at least 1, max 20 at a time)
-          int serversToAdd = (int) Math.ceil(requestsPerSecond / SCALE_UP_THRESHOLD);
-          serversToAdd = Math.max(1, Math.min(serversToAdd, MAX_SERVERS - currentServerCount));
+        // Prevent scaling when there are no requests (avoid unnecessary scaling)
+        if (requestsPerInterval == 0) {
+          LOGGER.log(Level.INFO, "No requests detected in this interval, skipping auto-scaling");
+          return;
+        }
 
-          LOGGER.log(Level.INFO, "AUTO-SCALE UP: Adding {0} server(s)", serversToAdd);
+        // Calculate ideal number of servers based on target average requests per server
+        int idealServerCount = (int) Math.ceil(requestsPerSecond / TARGET_AVG_REQ_PER_SECOND);
+        idealServerCount = Math.max(MIN_SERVERS, Math.min(idealServerCount, MAX_SERVERS));
+
+        // Define the upper and lower bounds using the configured thresholds
+        double scaleUpBound = TARGET_AVG_REQ_PER_SECOND + SCALE_UP_THRESHOLD;
+        double scaleDownBound = TARGET_AVG_REQ_PER_SECOND - SCALE_DOWN_THRESHOLD;
+
+        // Scale up if current average is above the upper bound and we can add servers
+        if (avgReqPerServer > scaleUpBound && currentServerCount < MAX_SERVERS) {
+          // Calculate how many servers to add to get closer to target
+          int serversToAdd = idealServerCount - currentServerCount;
+          serversToAdd = Math.max(1, Math.min(serversToAdd, MAX_SERVERS - currentServerCount));
+          // Limit to max 5 servers at a time to avoid rapid scaling
+          serversToAdd = Math.min(serversToAdd, 5);
+
+          LOGGER.log(Level.INFO,
+            "AUTO-SCALE UP: Current avg {0} req/s per server > {1} req/s (target: {2} + threshold: {3}). Adding {4} server(s)",
+            new Object[] { String.format("%.1f", avgReqPerServer), String.format("%.1f", scaleUpBound),
+                String.format("%.1f", TARGET_AVG_REQ_PER_SECOND), String.format("%.1f", SCALE_UP_THRESHOLD),
+                serversToAdd });
 
           for (int i = 0; i < serversToAdd; i++) {
-            Node node = serverManager.startServer();
-            hashRing.addNode(node);
-            serverStartTimes.put(node.getId(), System.currentTimeMillis());
-            serverRequestCounts.put(node.getId(), 0L);
-            serverLastRequestCounts.put(node.getId(), 0L);
-            serverRequestsPerSecond.put(node.getId(), 0.0);
+            // Check if auto-scaling is still enabled before adding each server
+            if (!autoScalingEnabled) {
+              LOGGER.log(Level.INFO, "Auto-scaling disabled during scale-up operation, stopping at {0} servers added",
+                i);
+              break;
+            }
+            addServerNode();
           }
 
           lastScaleTime = System.currentTimeMillis();
-          lastScaleAction = "Scaled up by " + serversToAdd;
+          lastScaleAction = "Scaled up by " + serversToAdd + " (target: "
+            + String.format("%.1f", TARGET_AVG_REQ_PER_SECOND) + " req/s per server)";
           LOGGER.log(Level.INFO, "Scaled up to {0} servers", serverManager.getServerCount());
-        } // Scale down if load is low (but keep at least MIN_SERVERS)
-        else if (requestsPerSecond < SCALE_DOWN_THRESHOLD && currentServerCount > MIN_SERVERS) {
-          // Only scale down if load has been consistently low
-          // Calculate how many servers to remove (at least 1, max 2 at a time)
-          int serversToRemove = Math.min(2, currentServerCount - MIN_SERVERS);
+        }
+        // Scale down if current average is below the lower bound and we have more than minimum
+        else if (avgReqPerServer < scaleDownBound && currentServerCount > MIN_SERVERS) {
+          // Calculate how many servers to remove to get closer to target
+          int serversToRemove = currentServerCount - idealServerCount;
+          serversToRemove = Math.max(1, Math.min(serversToRemove, currentServerCount - MIN_SERVERS));
+          // Limit to max 2 servers at a time to avoid rapid scaling
+          serversToRemove = Math.min(serversToRemove, 2);
 
-          // Don't scale down too aggressively
-          if (requestsPerSecond > 5.0) {
-            serversToRemove = Math.min(1, serversToRemove);
-          }
-
-          LOGGER.log(Level.INFO, "AUTO-SCALE DOWN: Removing {0} server(s)", serversToRemove);
+          LOGGER.log(Level.INFO,
+            "AUTO-SCALE DOWN: Current avg {0} req/s per server < {1} req/s (target: {2} - threshold: {3}). Removing {4} server(s)",
+            new Object[] { String.format("%.1f", avgReqPerServer), String.format("%.1f", scaleDownBound),
+                String.format("%.1f", TARGET_AVG_REQ_PER_SECOND), String.format("%.1f", SCALE_DOWN_THRESHOLD),
+                serversToRemove });
 
           List<Node> nodes = new ArrayList<>(serverManager.getNodes());
           for (int i = 0; i < serversToRemove && nodes.size() > MIN_SERVERS; i++) {
+            // Check if auto-scaling is still enabled before removing each server
+            if (!autoScalingEnabled) {
+              LOGGER.log(Level.INFO,
+                "Auto-scaling disabled during scale-down operation, stopping at {0} servers removed", i);
+              break;
+            }
             Node node = nodes.get(nodes.size() - 1 - i);
-            hashRing.removeNode(node.getId());
-            serverManager.stopServer(node.getId());
-            serverStartTimes.remove(node.getId());
-            serverRequestCounts.remove(node.getId());
+            removeServerNode(node.getId());
           }
 
           lastScaleTime = System.currentTimeMillis();
-          lastScaleAction = "Scaled down by " + serversToRemove;
+          lastScaleAction = "Scaled down by " + serversToRemove + " (target: "
+            + String.format("%.1f", TARGET_AVG_REQ_PER_SECOND) + " req/s per server)";
           LOGGER.log(Level.INFO, "Scaled down to {0} servers", serverManager.getServerCount());
         }
 
@@ -289,10 +319,12 @@ public class LoadBalancer {
   public String generateStatsJson() {
     long uptime = System.currentTimeMillis() - startTime;
     long uptimeSeconds = uptime / 1000;
-    double requestsPerSecond = uptimeSeconds > 0 ? (double) requestCount / uptimeSeconds : 0;
-    double errorRate = requestCount > 0 ? (double) errorCount / requestCount * 100 : 0;
+    long totalRequests = requestCount.get();
+    long totalErrors = errorCount.get();
+    double requestsPerSecond = uptimeSeconds > 0 ? (double) totalRequests / uptimeSeconds : 0;
+    double errorRate = totalRequests > 0 ? (double) totalErrors / totalRequests * 100 : 0;
     int currentServerCount = serverManager.getServerCount();
-    double avgRequestsPerServer = currentServerCount > 0 ? (double) requestCount / currentServerCount : 0;
+    double avgRequestsPerServer = currentServerCount > 0 ? (double) totalRequests / currentServerCount : 0;
 
     // Calculate current instantaneous load (recent request rate)
     double currentLoad = requestsPerInterval / (double) AUTO_SCALE_CHECK_INTERVAL;
@@ -310,8 +342,8 @@ public class LoadBalancer {
 
     // Performance Metrics
     stats.append("  \"performance\": {\n");
-    stats.append("    \"totalRequests\": ").append(requestCount).append(",\n");
-    stats.append("    \"totalErrors\": ").append(errorCount).append(",\n");
+    stats.append("    \"totalRequests\": ").append(totalRequests).append(",\n");
+    stats.append("    \"totalErrors\": ").append(totalErrors).append(",\n");
     stats.append("    \"errorRate\": ").append(String.format("%.2f", errorRate)).append(",\n");
     stats.append("    \"requestsPerSecond\": ").append(String.format("%.2f", requestsPerSecond)).append(",\n");
     stats.append("    \"currentLoad\": ").append(String.format("%.2f", currentLoad)).append(",\n");
@@ -360,9 +392,11 @@ public class LoadBalancer {
       long nodeRequests = serverRequestCounts.getOrDefault(node.getId(), 0L);
       double nodeRequestsPerSecond = serverRequestsPerSecond.getOrDefault(node.getId(), 0.0);
 
-      // Calculate load percentage based on deviation from the average number of requests.
-      // This avoids spikes when a server has low uptime.
-      double nodeLoadPercentage = avgRequestsPerServer > 0 ? (nodeRequests / avgRequestsPerServer) * 100 : 0;
+      // Calculate load percentage based on requests per second vs target average.
+      // If a server is handling more than the target req/s, it's above 100%.
+      double nodeLoadPercentage = TARGET_AVG_REQ_PER_SECOND > 0
+        ? (nodeRequestsPerSecond / TARGET_AVG_REQ_PER_SECOND) * 100
+        : 0;
 
       stats.append("      {\n");
       stats.append("        \"id\": \"").append(node.getId()).append("\",\n");
@@ -426,26 +460,25 @@ public class LoadBalancer {
     }
   }
 
-  /** Forward request to backend server */
-  @SuppressWarnings("deprecation")
-  private String forwardRequest(String targetUrl, String method) throws IOException {
-    URL url = new URL(targetUrl);
-    HttpURLConnection conn = (HttpURLConnection) url.openConnection();
-    conn.setRequestMethod(method);
-    conn.setConnectTimeout(5000);
-    conn.setReadTimeout(5000);
+  /** Add a server node to the load balancer and initialize all tracking maps */
+  public Node addServerNode() throws IOException {
+    Node node = serverManager.startServer();
+    hashRing.addNode(node);
+    serverStartTimes.put(node.getId(), System.currentTimeMillis());
+    serverRequestCounts.put(node.getId(), 0L);
+    serverLastRequestCounts.put(node.getId(), 0L);
+    serverRequestsPerSecond.put(node.getId(), 0.0);
+    return node;
+  }
 
-    StringBuilder response;
-    try (BufferedReader in = new BufferedReader(new InputStreamReader(conn.getInputStream()))) {
-      response = new StringBuilder();
-      String line;
-      while ((line = in.readLine()) != null) {
-        response.append(line);
-      }
-    }
-    conn.disconnect();
-
-    return response.toString();
+  /** Remove a server node from the load balancer and clean up all tracking maps */
+  public void removeServerNode(String nodeId) {
+    hashRing.removeNode(nodeId);
+    serverManager.stopServer(nodeId);
+    serverStartTimes.remove(nodeId);
+    serverRequestCounts.remove(nodeId);
+    serverLastRequestCounts.remove(nodeId);
+    serverRequestsPerSecond.remove(nodeId);
   }
 
   /** Send error response */
@@ -492,19 +525,19 @@ public class LoadBalancer {
   }
 
   public long getRequestCount() {
-    return requestCount;
+    return requestCount.get();
   }
 
   public void incrementRequestCount() {
-    this.requestCount++;
+    this.requestCount.incrementAndGet();
   }
 
   public long getErrorCount() {
-    return errorCount;
+    return errorCount.get();
   }
 
   public void incrementErrorCount() {
-    this.errorCount++;
+    this.errorCount.incrementAndGet();
   }
 
   public long getStartTime() {
@@ -538,7 +571,10 @@ public class LoadBalancer {
   public void setAutoScalingEnabled(boolean enabled) {
     this.autoScalingEnabled = enabled;
     if (enabled) {
-      LOGGER.info("Auto-scaling enabled");
+      // Reset request counters when enabling auto-scaling to get fresh data
+      lastRequestCount = requestCount.get();
+      requestsPerInterval = 0;
+      LOGGER.info("Auto-scaling enabled - request counters reset for fresh start");
     } else {
       LOGGER.info("Auto-scaling disabled");
     }

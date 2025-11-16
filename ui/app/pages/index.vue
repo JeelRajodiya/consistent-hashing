@@ -166,6 +166,7 @@ onUnmounted(() => {
 });
 
 const autoScale = ref(true);
+let isInitialFetch = true;
 
 // Fetch initial auto-scale status
 const fetchAutoScaleStatus = async () => {
@@ -177,11 +178,19 @@ const fetchAutoScaleStatus = async () => {
     }
   } catch (error) {
     console.error("Error fetching auto-scale status:", error);
+  } finally {
+    // After initial fetch, enable watch
+    isInitialFetch = false;
   }
 };
 
 // Watch for changes in autoScale and update server
-watch(autoScale, async (newValue) => {
+watch(autoScale, async (newValue, oldValue) => {
+  // Skip the watch on initial fetch
+  if (isInitialFetch) {
+    return;
+  }
+
   try {
     const response = await fetch("http://localhost:8080/auto-scale/toggle", {
       method: "POST",
@@ -206,14 +215,14 @@ watch(autoScale, async (newValue) => {
 </script>
 <template>
   <div class="flex items-center justify-center" v-if="statsData">
-    <div class="flex flex-col h-full py-16 max-w-fit space-y-16 w-full">
+    <div class="flex flex-col h-full py-8 max-w-fit space-y-16 w-full">
       <div class="flex flex-col justify-center items-center">
         <div class="w-fit flex flex-col gap-2">
           <div
             class="font-black text-4xl text-primary tracking-tight w-fit leading-none"
           >
             <div>CSE540</div>
-            <div>Load Balancer Live Analytics</div>
+            <div>Consistant Load Balancer</div>
           </div>
           <div class="flex justify-between w-full">
             <div class="font-semibold">
@@ -232,7 +241,7 @@ watch(autoScale, async (newValue) => {
         </div>
       </div>
       <div class="flex flex-row gap-16">
-        <div class="w-fit flex flex-col gap-4">
+        <div class="w-fit flex flex-col gap-4 min-w-md">
           <div class="text-2xl flex flex-row justify-center items-center">
             <span class="circle" />
             <span class="text-muted">Total Requests Handled:</span>
@@ -244,8 +253,8 @@ watch(autoScale, async (newValue) => {
           <StatCard title="Performance" :data="statsData?.performance!" />
         </div>
         <div class="flex flex-col flex-1">
-          <div class="text-2xl font-bold p-4 text-center">
-            Servers ({{ statsData.hashRing.physicalNodes }})
+          <div class="text-2xl font-bold pb-2 text-center">
+            Servers ( {{ statsData.hashRing.physicalNodes }} )
           </div>
           <div class="flex justify-between">
             <USwitch v-model="autoScale" class="mb-4" label="Auto Scaling" />
@@ -255,6 +264,7 @@ watch(autoScale, async (newValue) => {
               size="sm"
               class="h-fit"
               :loading="isAddingServer"
+              :disabled="autoScale"
               @click="AddServerHandler"
             />
           </div>

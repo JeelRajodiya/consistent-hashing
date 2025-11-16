@@ -71,7 +71,7 @@ public class ConsistentHashRing {
     LOGGER.log(Level.INFO, "Removed node {0} (total: {1} nodes)", new Object[] { nodeId, nodeHashes.size() });
   }
 
-  /** Get the node responsible for the given key */
+  /** Get the node responsible for the given key, skipping inactive nodes */
   public synchronized Node getNode(String key) {
     if (ring.isEmpty()) {
       return null;
@@ -84,19 +84,46 @@ public class ConsistentHashRing {
       entry = ring.firstEntry();
     }
 
-    return entry.getValue();
+    // If the first node is inactive, find the next active node
+    Node node = entry.getValue();
+    if (!node.isActive()) {
+      // Try to find an active node by iterating forward
+      for (Map.Entry<Long, Node> e : ring.tailMap(entry.getKey()).entrySet()) {
+        if (e.getValue().isActive()) {
+          return e.getValue();
+        }
+      }
+      // If no active node found forward, wrap around and search from the beginning
+      for (Map.Entry<Long, Node> e : ring.headMap(entry.getKey()).entrySet()) {
+        if (e.getValue().isActive()) {
+          return e.getValue();
+        }
+      }
+      // If still no active node found, return null
+      return null;
+    }
+
+    return node;
   }
 
-  /** Hash function using MD5 */
+  /** Hash function using MD5 - uses all 16 bytes for better distribution */
   private long hash(String key) {
     md.reset();
     md.update(key.getBytes());
     byte[] digest = md.digest();
 
-    long hash = ((long) (digest[3] & 0xFF) << 24) | ((long) (digest[2] & 0xFF) << 16) | ((long) (digest[1] & 0xFF) << 8)
-      | ((long) (digest[0] & 0xFF));
+    // Combine all 16 bytes of MD5 hash into a long value
+    // Use XOR to combine high and low 8-byte chunks for better distribution
+    long high = 0L;
+    long low = 0L;
 
-    return hash & 0xFFFFFFFFL;
+    for (int i = 0; i < 8; i++) {
+      high = (high << 8) | (digest[i] & 0xFF);
+      low = (low << 8) | (digest[i + 8] & 0xFF);
+    }
+
+    // XOR the two halves for better distribution
+    return high ^ low;
   }
 
   /** Get all nodes in the ring */

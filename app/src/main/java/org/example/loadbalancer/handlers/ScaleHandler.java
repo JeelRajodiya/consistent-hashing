@@ -21,21 +21,10 @@ public class ScaleHandler implements HttpHandler {
   @Override
   public void handle(HttpExchange exchange) throws IOException {
     String query = exchange.getRequestURI().getQuery();
+    int targetCount = org.example.util.QueryParamParser.getIntParam(query, "target", -1);
 
-    if (query == null || !query.startsWith("target=")) {
-      loadBalancer.sendErrorResponse(exchange, "Missing 'target' parameter");
-      return;
-    }
-
-    int targetCount;
-    try {
-      targetCount = Integer.parseInt(query.substring(7));
-      if (targetCount < 1 || targetCount > 50) {
-        loadBalancer.sendErrorResponse(exchange, "Target must be between 1 and 50");
-        return;
-      }
-    } catch (NumberFormatException e) {
-      loadBalancer.sendErrorResponse(exchange, "Invalid target parameter");
+    if (targetCount < 1 || targetCount > 50) {
+      loadBalancer.sendErrorResponse(exchange, "Missing or invalid 'target' parameter (must be between 1 and 50)");
       return;
     }
 
@@ -54,12 +43,7 @@ public class ScaleHandler implements HttpHandler {
           new Object[] { targetCount, changeCount });
 
         for (int i = 0; i < changeCount; i++) {
-          Node node = loadBalancer.getServerManager().startServer();
-          loadBalancer.getHashRing().addNode(node);
-          loadBalancer.getServerStartTimes().put(node.getId(), System.currentTimeMillis());
-          loadBalancer.getServerRequestCounts().put(node.getId(), 0L);
-          loadBalancer.getServerLastRequestCounts().put(node.getId(), 0L);
-          loadBalancer.getServerRequestsPerSecond().put(node.getId(), 0.0);
+          Node node = loadBalancer.addServerNode();
           changedServers.add(node.getId());
         }
 
@@ -73,10 +57,7 @@ public class ScaleHandler implements HttpHandler {
         List<Node> nodes = new ArrayList<>(loadBalancer.getServerManager().getNodes());
         for (int i = 0; i < changeCount; i++) {
           Node node = nodes.get(nodes.size() - 1 - i);
-          loadBalancer.getHashRing().removeNode(node.getId());
-          loadBalancer.getServerManager().stopServer(node.getId());
-          loadBalancer.getServerStartTimes().remove(node.getId());
-          loadBalancer.getServerRequestCounts().remove(node.getId());
+          loadBalancer.removeServerNode(node.getId());
           changedServers.add(node.getId());
         }
 
@@ -93,7 +74,6 @@ public class ScaleHandler implements HttpHandler {
 
         try (OutputStream os = exchange.getResponseBody()) {
           os.write(response.getBytes(StandardCharsets.UTF_8));
-          os.close();
         }
         return;
       }

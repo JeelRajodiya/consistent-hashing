@@ -21,19 +21,11 @@ public class ScaleDownHandler implements HttpHandler {
   @Override
   public void handle(HttpExchange exchange) throws IOException {
     String query = exchange.getRequestURI().getQuery();
-    int count = 1; // Default to 1 server
+    int count = org.example.util.QueryParamParser.getIntParam(query, "count", 1);
 
-    if (query != null && query.startsWith("count=")) {
-      try {
-        count = Integer.parseInt(query.substring(6));
-        if (count < 1) {
-          loadBalancer.sendErrorResponse(exchange, "Count must be at least 1");
-          return;
-        }
-      } catch (NumberFormatException e) {
-        loadBalancer.sendErrorResponse(exchange, "Invalid count parameter");
-        return;
-      }
+    if (count < 1) {
+      loadBalancer.sendErrorResponse(exchange, "Count must be at least 1");
+      return;
     }
 
     int currentCount = loadBalancer.getServerManager().getServerCount();
@@ -51,10 +43,7 @@ public class ScaleDownHandler implements HttpHandler {
       List<Node> nodes = new ArrayList<>(loadBalancer.getServerManager().getNodes());
       for (int i = 0; i < count && i < nodes.size(); i++) {
         Node node = nodes.get(nodes.size() - 1 - i);
-        loadBalancer.getHashRing().removeNode(node.getId());
-        loadBalancer.getServerManager().stopServer(node.getId());
-        loadBalancer.getServerStartTimes().remove(node.getId());
-        loadBalancer.getServerRequestCounts().remove(node.getId());
+        loadBalancer.removeServerNode(node.getId());
         removedServers.add(node.getId());
       }
 
