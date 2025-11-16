@@ -25,12 +25,12 @@ docker run -d `
     cloud
 
 if ($LASTEXITCODE -eq 0) {
-    Write-Host "✓ Docker container 'cloud' is now running!" -ForegroundColor Green
+    Write-Host "Docker container 'cloud' is now running!" -ForegroundColor Green
     Write-Host "  - Load Balancer: http://localhost:8080" -ForegroundColor Cyan
     Write-Host "  - UI: http://localhost:3000" -ForegroundColor Cyan
     Write-Host ""
     Write-Host "To view logs: docker logs -f cloud" -ForegroundColor Gray
 } else {
-    Write-Host "✗ Failed to run Docker container" -ForegroundColor Red
+    Write-Host "Failed to run Docker container" -ForegroundColor Red
     exit 1
 }
