@@ -244,6 +244,9 @@ watch(autoScale, async (newValue) => {
           <StatCard title="Performance" :data="statsData?.performance!" />
         </div>
         <div class="flex flex-col flex-1">
+          <div class="text-2xl font-bold p-4 text-center">
+            Servers ({{ statsData.hashRing.physicalNodes }})
+          </div>
           <div class="flex justify-between">
             <USwitch v-model="autoScale" class="mb-4" label="Auto Scaling" />
             <UButton

@@ -27,6 +27,7 @@ public class StatsWebSocketServer extends WebSocketServer {
     super(address);
     this.statsProvider = statsProvider;
     this.broadcastInterval = broadcastIntervalSeconds;
+    setReuseAddr(true);
   }
 
   @Override
@@ -102,6 +103,7 @@ public class StatsWebSocketServer extends WebSocketServer {
   public void shutdown() {
     try {
       scheduler.shutdown();
+      scheduler.awaitTermination(2, TimeUnit.SECONDS);
       stop(1000);
       LOGGER.info("WebSocket Stats Server stopped");
     } catch (Exception e) {
