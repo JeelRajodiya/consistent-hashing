@@ -1,7 +1,5 @@
 package org.example.ring;
 
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -13,6 +11,7 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 
 import org.example.common.Node;
+import org.example.util.MurmurHash;
 
 /** Consistent Hash Ring implementation with virtual nodes */
 public class ConsistentHashRing {
@@ -21,18 +20,11 @@ public class ConsistentHashRing {
   private final TreeMap<Long, Node> ring;
   private final Map<String, List<Long>> nodeHashes;
   private final int virtualNodes;
-  private final MessageDigest md;
 
   public ConsistentHashRing(int virtualNodes) {
     this.ring = new TreeMap<>();
     this.nodeHashes = new HashMap<>();
     this.virtualNodes = virtualNodes;
-
-    try {
-      this.md = MessageDigest.getInstance("MD5");
-    } catch (NoSuchAlgorithmException e) {
-      throw new RuntimeException("MD5 algorithm not found", e);
-    }
   }
 
   /** Add a node to the ring */
@@ -106,24 +98,12 @@ public class ConsistentHashRing {
     return node;
   }
 
-  /** Hash function using MD5 - uses all 16 bytes for better distribution */
+  /**
+   * Hash function using MurmurHash3 for excellent distribution MurmurHash3 is specifically designed for hash tables and
+   * provides superior uniformity compared to cryptographic hashes
+   */
   private long hash(String key) {
-    md.reset();
-    md.update(key.getBytes());
-    byte[] digest = md.digest();
-
-    // Combine all 16 bytes of MD5 hash into a long value
-    // Use XOR to combine high and low 8-byte chunks for better distribution
-    long high = 0L;
-    long low = 0L;
-
-    for (int i = 0; i < 8; i++) {
-      high = (high << 8) | (digest[i] & 0xFF);
-      low = (low << 8) | (digest[i + 8] & 0xFF);
-    }
-
-    // XOR the two halves for better distribution
-    return high ^ low;
+    return MurmurHash.hash64(key);
   }
 
   /** Get all nodes in the ring */
