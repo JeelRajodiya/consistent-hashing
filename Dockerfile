@@ -62,7 +62,9 @@ RUN chmod +x run.sh load-test.sh
 
 # Create a startup script to run both services
 RUN echo '#!/bin/bash\n\
-cd /app/ui && node server/index.mjs &\n\
+echo "Starting Nuxt UI server on port 3000..."\n\
+cd /app/ui && PORT=3000 node server/index.mjs &\n\
+echo "Starting Java Load Balancer on port 8080..."\n\
 cd /app && java-app/bin/app config.properties\n\
 ' > /app/start.sh && chmod +x /app/start.sh
 
