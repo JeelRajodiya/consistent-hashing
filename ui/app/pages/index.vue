@@ -167,7 +167,7 @@ onUnmounted(() => {
 const autoScale = ref(true);
 </script>
 <template>
-  <div class="flex items-center justify-center">
+  <div class="flex items-center justify-center" v-if="statsData">
     <div class="flex flex-col h-full py-16 max-w-fit space-y-16 w-full">
       <div class="flex flex-col justify-center items-center">
         <div class="w-fit flex flex-col gap-2">
@@ -221,6 +221,9 @@ const autoScale = ref(true);
         </div>
       </div>
     </div>
+  </div>
+  <div class="flex items-center justify-center h-full" v-else>
+    <UIcon name="i-lucide-loader" size="64" class="animate-spin bg-primary" />
   </div>
 </template>
 
