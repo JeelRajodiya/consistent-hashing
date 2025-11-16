@@ -21,6 +21,8 @@ dependencies {
     implementation(libs.guava)
     // WebSocket support
     implementation("org.java-websocket:Java-WebSocket:1.5.4")
+    // JSON support
+    implementation("org.json:json:20240303")
 }
 
 // Apply a specific Java toolchain to ease working on different environments.

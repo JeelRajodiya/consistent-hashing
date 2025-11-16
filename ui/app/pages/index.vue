@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, nextTick } from "vue";
+import { ref, computed, onMounted, onUnmounted, nextTick, watch } from "vue";
 import { type Stats } from "../../types/stats";
 import StatCard from "../components/StatCard.vue";
 import ServerTable from "../components/ServerTable.vue";
@@ -158,6 +158,7 @@ const AddServerHandler = () => {
 // Lifecycle
 onMounted(() => {
   connect();
+  fetchAutoScaleStatus();
 });
 
 onUnmounted(() => {
@@ -165,6 +166,43 @@ onUnmounted(() => {
 });
 
 const autoScale = ref(true);
+
+// Fetch initial auto-scale status
+const fetchAutoScaleStatus = async () => {
+  try {
+    const response = await fetch("http://localhost:8080/auto-scale/status");
+    if (response.ok) {
+      const data = await response.json();
+      autoScale.value = data.autoScalingEnabled;
+    }
+  } catch (error) {
+    console.error("Error fetching auto-scale status:", error);
+  }
+};
+
+// Watch for changes in autoScale and update server
+watch(autoScale, async (newValue) => {
+  try {
+    const response = await fetch("http://localhost:8080/auto-scale/toggle", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ enabled: newValue }),
+    });
+
+    if (!response.ok) {
+      throw new Error("Failed to toggle auto-scaling");
+    }
+
+    const data = await response.json();
+    console.log("Auto-scaling toggled:", data.message);
+  } catch (error) {
+    console.error("Error toggling auto-scaling:", error);
+    // Revert the switch if request failed
+    autoScale.value = !newValue;
+  }
+});
 </script>
 <template>
   <div class="flex items-center justify-center" v-if="statsData">

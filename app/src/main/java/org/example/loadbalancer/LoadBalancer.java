@@ -21,12 +21,14 @@ import java.util.logging.Logger;
 import org.example.common.Node;
 import org.example.config.ServerConfig;
 import org.example.loadbalancer.handlers.AddServerHandler;
+import org.example.loadbalancer.handlers.AutoScaleStatusHandler;
 import org.example.loadbalancer.handlers.LoadBalancerHandler;
 import org.example.loadbalancer.handlers.RemoveServerHandler;
 import org.example.loadbalancer.handlers.ScaleDownHandler;
 import org.example.loadbalancer.handlers.ScaleHandler;
 import org.example.loadbalancer.handlers.ScaleUpHandler;
 import org.example.loadbalancer.handlers.StatsHandler;
+import org.example.loadbalancer.handlers.ToggleAutoScaleHandler;
 import org.example.ring.ConsistentHashRing;
 import org.example.server.ServerManager;
 
@@ -67,7 +69,7 @@ public class LoadBalancer {
   private final int MAX_TIMELINE_POINTS = 60;
   private final int MIN_SERVERS;
   private final int MAX_SERVERS;
-  private final boolean autoScalingEnabled;
+  private boolean autoScalingEnabled;
   private final double SCALE_UP_THRESHOLD;
   private final double SCALE_DOWN_THRESHOLD;
   private final int AUTO_SCALE_CHECK_INTERVAL;
@@ -120,6 +122,8 @@ public class LoadBalancer {
     httpServer.createContext("/scale", new ScaleHandler(this));
     httpServer.createContext("/scale-up", new ScaleUpHandler(this));
     httpServer.createContext("/scale-down", new ScaleDownHandler(this));
+    httpServer.createContext("/auto-scale/status", new AutoScaleStatusHandler(this));
+    httpServer.createContext("/auto-scale/toggle", new ToggleAutoScaleHandler(this));
     httpServer.setExecutor(Executors.newFixedThreadPool(20));
     httpServer.start();
 
@@ -172,12 +176,8 @@ public class LoadBalancer {
 
   /** Start auto-scaling based on request load */
   private void startAutoScaling() {
-    if (!autoScalingEnabled) {
-      LOGGER.info("Auto-scaling disabled");
-      return;
-    }
-
-    LOGGER.info("Auto-scaling enabled:");
+    LOGGER.info("Starting auto-scaling scheduler...");
+    LOGGER.log(Level.INFO, "  Initial state: {0}", autoScalingEnabled ? "enabled" : "disabled");
     LOGGER.log(Level.INFO, "  Scale up threshold: {0} req/s", SCALE_UP_THRESHOLD);
     LOGGER.log(Level.INFO, "  Scale down threshold: {0} req/s", SCALE_DOWN_THRESHOLD);
     LOGGER.log(Level.INFO, "  Check interval: {0}s", AUTO_SCALE_CHECK_INTERVAL);
@@ -201,6 +201,11 @@ public class LoadBalancer {
         LOGGER.log(Level.INFO, "Load: {0} req/s ({1} reqs in {2}s) | {3} servers | {4} req/s per server",
           new Object[] { String.format("%.1f", requestsPerSecond), requestsPerInterval, AUTO_SCALE_CHECK_INTERVAL,
               currentServerCount, requestsPerServer });
+
+        // Check if auto-scaling is enabled before taking action
+        if (!autoScalingEnabled) {
+          return;
+        }
 
         // Scale up if load is high
         if (requestsPerSecond > SCALE_UP_THRESHOLD && currentServerCount < MAX_SERVERS) {
@@ -524,5 +529,18 @@ public class LoadBalancer {
 
   public Logger getLogger() {
     return LOGGER;
+  }
+
+  public boolean isAutoScalingEnabled() {
+    return autoScalingEnabled;
+  }
+
+  public void setAutoScalingEnabled(boolean enabled) {
+    this.autoScalingEnabled = enabled;
+    if (enabled) {
+      LOGGER.info("Auto-scaling enabled");
+    } else {
+      LOGGER.info("Auto-scaling disabled");
+    }
   }
 }
