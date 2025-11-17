@@ -222,7 +222,7 @@ watch(autoScale, async (newValue, oldValue) => {
             class="font-black text-4xl text-primary tracking-tight w-fit leading-none"
           >
             <div>CSE540</div>
-            <div>Consistant Load Balancer</div>
+            <div>Load Balancer with Consistent Hashing</div>
           </div>
           <div class="flex justify-between w-full">
             <div class="font-semibold">
@@ -259,7 +259,7 @@ watch(autoScale, async (newValue, oldValue) => {
           <div class="flex justify-between">
             <USwitch v-model="autoScale" class="mb-4" label="Auto Scaling" />
             <UButton
-              label="Add new Server"
+              label="New Server"
               icon="i-lucide-plus"
               size="sm"
               class="h-fit"
